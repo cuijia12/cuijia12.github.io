@@ -1,0 +1,8 @@
+部署说明.txt
+config.json
+__pycache__/
+*.py[cod]
+build/
+dist/
+.packaging/
+*.spec~
