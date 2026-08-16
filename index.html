@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="C402 Studio：专注串口调试、T5L在线下载与嵌入式开发效率工具。">
+  <meta name="theme-color" content="#0a1020">
+  <title>C402 Studio · 串口助手</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --panel: rgba(17, 25, 43, .78);
+      --panel-solid: #11192b;
+      --text: #edf4ff;
+      --muted: #9eacc2;
+      --line: rgba(150, 180, 225, .16);
+      --blue: #63a4ff;
+      --cyan: #45e0c1;
+      --purple: #a987ff;
+      --shadow: 0 24px 70px rgba(0, 0, 0, .28);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 8%, rgba(65, 115, 220, .2), transparent 32rem),
+        radial-gradient(circle at 88% 20%, rgba(53, 209, 181, .12), transparent 28rem),
+        var(--bg);
+      font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", system-ui, sans-serif;
+      line-height: 1.7;
+    }
+    a { color: inherit; }
+    .noise {
+      position: fixed; inset: 0; pointer-events: none; opacity: .35;
+      background-image: linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(to bottom, black, transparent 75%);
+    }
+    .wrap { width: min(1120px, calc(100% - 36px)); margin: auto; }
+    nav {
+      position: sticky; top: 0; z-index: 20;
+      background: rgba(7, 11, 20, .72); border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(18px);
+    }
+    nav .wrap { height: 68px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 720; letter-spacing: .02em; }
+    .logo {
+      width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px;
+      background: linear-gradient(135deg, var(--blue), var(--cyan)); color: #06101d; box-shadow: 0 8px 24px rgba(69, 224, 193, .2);
+    }
+    .links { display: flex; align-items: center; gap: 26px; color: var(--muted); font-size: 14px; }
+    .links a { text-decoration: none; transition: color .2s; }
+    .links a:hover { color: #fff; }
+    .nav-contact { padding: 7px 13px; border: 1px solid var(--line); border-radius: 9px; }
+    .hero { min-height: 660px; display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; padding: 76px 0 70px; }
+    .hero > * { min-width: 0; }
+    .eyebrow { color: var(--cyan); font-size: 13px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 16px 0 20px; overflow-wrap: anywhere; word-break: break-word; font-size: clamp(42px, 6vw, 72px); line-height: 1.08; letter-spacing: -.045em; }
+    .gradient { color: transparent; background: linear-gradient(90deg, #fff, #a8caff 52%, #66e8cf); background-clip: text; }
+    .lead { max-width: 620px; color: var(--muted); font-size: 18px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .button {
+      display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+      min-height: 46px; padding: 0 19px; border-radius: 11px; border: 1px solid var(--line);
+      color: #fff; text-decoration: none; font-weight: 680; cursor: pointer; font: inherit;
+      background: rgba(255,255,255,.04); transition: transform .2s, border-color .2s, background .2s;
+    }
+    .button:hover { transform: translateY(-2px); border-color: rgba(132, 174, 236, .42); background: rgba(255,255,255,.075); }
+    .button.primary { border: 0; color: #06101d; background: linear-gradient(135deg, #78b3ff, #4ce3c6); box-shadow: 0 13px 34px rgba(73, 174, 218, .22); }
+    .version { margin-top: 15px; color: #75859d; font-size: 13px; }
+    .terminal {
+      position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 18px;
+      width: 100%; max-width: 100%;
+      background: rgba(8, 13, 24, .88); box-shadow: var(--shadow); transform: perspective(1200px) rotateY(-3deg) rotateX(1deg);
+    }
+    .terminal::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(130deg, rgba(255,255,255,.06), transparent 35%); }
+    .term-top { height: 43px; display: flex; align-items: center; gap: 7px; padding: 0 15px; border-bottom: 1px solid var(--line); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff6c77; }.dot:nth-child(2){background:#f2bd56}.dot:nth-child(3){background:#54cf81}
+    .term-title { margin-left: 8px; color: #74849b; font-size: 12px; }
+    .screen { min-height: 380px; overflow: hidden; padding: 23px; font: 14px/1.9 "Cascadia Code", Consolas, monospace; color: #a8bad1; }
+    .screen .tx { color: #55dfaa; }.screen .rx { color: #75b4ff; }.screen .dim { color: #526178; }.screen .cursor { display:inline-block;width:8px;height:16px;background:var(--cyan);vertical-align:-3px;animation:blink 1s infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    section { padding: 78px 0; }
+    .section-head { max-width: 680px; margin-bottom: 34px; }
+    .section-head h2 { margin: 8px 0 10px; font-size: clamp(30px, 4vw, 44px); letter-spacing: -.03em; }
+    .section-head p { color: var(--muted); }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { padding: 25px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: 0 14px 45px rgba(0,0,0,.1); }
+    .icon { width: 38px; height: 38px; display: grid; place-items: center; margin-bottom: 16px; border-radius: 10px; color: var(--blue); background: rgba(99,164,255,.1); font: 700 17px "Cascadia Code", monospace; }
+    .card h3 { margin: 0 0 7px; font-size: 18px; }.card p { margin: 0; color: var(--muted); font-size: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--line); }
+    .stat { padding: 28px 18px; text-align: center; background: var(--panel-solid); }.stat strong { display: block; font-size: 29px; color: #fff; }.stat span { color: var(--muted); font-size: 13px; }
+    .about { display: grid; grid-template-columns: .8fr 1.2fr; gap: 26px; align-items: stretch; }
+    .profile { display: grid; place-items: center; text-align: center; min-height: 300px; }
+    .avatar { width: 92px; height: 92px; display: grid; place-items: center; border-radius: 26px; background: linear-gradient(145deg, var(--blue), var(--purple)); color: #08101d; font-size: 33px; font-weight: 850; box-shadow: 0 16px 45px rgba(109,133,255,.24); }
+    .profile h3 { margin: 18px 0 0; font-size: 24px; }.profile p { margin: 2px 0; color: var(--muted); }
+    .contact-box { display: flex; flex-direction: column; justify-content: center; }
+    .contact-box h2 { margin: 0 0 12px; font-size: 32px; }.contact-box p { color: var(--muted); }
+    .wechat { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 17px; padding: 14px 15px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.03); }
+    .wechat code { font: 650 16px "Cascadia Code", monospace; color: #fff; }.copy { min-height: 36px; padding: 0 13px; font-size: 13px; }
+    footer { padding: 30px 0 40px; border-top: 1px solid var(--line); color: #728198; font-size: 13px; text-align: center; }
+    @media (max-width: 860px) { .hero { grid-template-columns: minmax(0, 1fr); padding-top: 58px; }.terminal { transform: none; }.cards { grid-template-columns: 1fr 1fr; }.about { grid-template-columns: 1fr; } }
+    @media (max-width: 620px) { .links a:not(.nav-contact) { display: none; }.hero { display: block; width: 100%; min-height: auto; }.hero > div { width: 100%; max-width: 100%; }.hero .terminal { margin-top: 48px; }h1 { max-width: 100%; font-size: 36px; word-break: break-all; }.gradient { display: block; color: #dceaff; background: none; }.cards { grid-template-columns: minmax(0, 1fr); }.stats { grid-template-columns: 1fr 1fr; }.screen { min-height: 310px; padding: 17px; font-size: 12px; }.wechat { align-items: stretch; flex-direction: column; }.copy { width: 100%; } }
+  </style>
+</head>
+<body>
+  <div class="noise"></div>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="#top"><span class="logo">C</span><span>C402 Studio</span></a>
+      <div class="links"><a href="#features">功能</a><a href="#about">关于</a><a class="nav-contact" href="#contact">联系我</a></div>
+    </div>
+  </nav>
+
+  <main id="top" class="wrap">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">Serial · T5L · Embedded Tools</div>
+        <h1><span class="gradient">让串口调试与下载，变得更顺手。</span></h1>
+        <p class="lead">集串口数据收发、300条快捷指令、校验计算和 T5L 在线下载于一体。为真实的嵌入式开发流程设计，也为每天都要用的工具打磨细节。</p>
+        <div class="actions">
+          <a class="button primary" href="./串口助手_v1.0.exe" download>下载 Windows 版 <span>↓</span></a>
+          <a class="button" href="#features">查看功能</a>
+        </div>
+        <div class="version">当前版本 v1.0 · 单文件 EXE · 无需安装 Python</div>
+      </div>
+      <div class="terminal" aria-label="串口通讯记录示意">
+        <div class="term-top"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="term-title">Serial Assistant — COM10 / 115200</span></div>
+        <div class="screen">
+          <div class="dim">[09:32:18.104] PORT OPENED · 8N1</div>
+          <div class="tx">[09:32:19.281] 发 → 5A A5 04 83 00 14 01</div>
+          <div class="rx">[09:32:19.307] 收 ← 5A A5 06 83 00 14 01 00 01</div>
+          <br>
+          <div class="tx">[09:32:22.016] 发 → 01 03 00 21 00 04 31 C9</div>
+          <div class="rx">[09:32:22.051] 收 ← 01 03 08 00 1A 00 20 00 25 00 30</div>
+          <br>
+          <div class="dim">T5L DOWNLOAD · 14ShowFile.bin</div>
+          <div class="tx">████████████████████ 100%</div>
+          <div class="rx">FLASH WRITE OK · DEVICE RESET</div>
+          <div><span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <section id="features">
+      <div class="section-head"><div class="eyebrow">Core Features</div><h2>一个工具，覆盖完整调试流程</h2><p>串口配置、数据观察、批量命令和屏幕下载互相衔接，减少在多个工具之间反复切换。</p></div>
+      <div class="cards">
+        <article class="card"><div class="icon">01</div><h3>串口收发</h3><p>HEX/字符实时收发，支持时间戳、超时分组、自动滚屏、日志与多种字符编码。</p></article>
+        <article class="card"><div class="icon">02</div><h3>快捷指令</h3><p>10页共300条指令，可设置备注、延时、HEX模式和循环发送，兼容 SSCOM INI。</p></article>
+        <article class="card"><div class="icon">03</div><h3>校验计算</h3><p>支持 Modbus CRC16、CCITT、CRC32、ADD和XOR，并可精确选择校验范围。</p></article>
+        <article class="card"><div class="icon">04</div><h3>T5L在线下载</h3><p>调试与下载共用串口，支持13/14/22文件、T5L51代码及下载状态恢复。</p></article>
+        <article class="card"><div class="icon">05</div><h3>稳定工作流</h3><p>窗口布局、串口参数、指令、主题与工程路径自动保存，重新打开即可继续工作。</p></article>
+        <article class="card"><div class="icon">06</div><h3>原生 Windows</h3><p>直接调用 Windows 串口 API，发布为单文件 EXE，无需额外安装运行环境。</p></article>
+      </div>
+    </section>
+
+    <section aria-label="产品数据">
+      <div class="stats">
+        <div class="stat"><strong>300</strong><span>快捷指令</span></div>
+        <div class="stat"><strong>20</strong><span>界面主题</span></div>
+        <div class="stat"><strong>6</strong><span>校验算法</span></div>
+        <div class="stat"><strong>1</strong><span>单文件运行</span></div>
+      </div>
+    </section>
+
+    <section id="about" class="about">
+      <article class="card profile"><div><div class="avatar">C</div><h3>C402 Studio</h3><p>嵌入式工具开发</p></div></article>
+      <article id="contact" class="card contact-box">
+        <div class="eyebrow">Contact</div>
+        <h2>交流需求，反馈问题</h2>
+        <p>如果你在使用串口助手或 T5L 下载功能时有建议，欢迎通过微信联系。也可以交流定制工具和嵌入式开发需求。</p>
+        <div class="wechat"><div><small style="color:var(--muted)">微信号</small><br><code id="wechat">c402306805</code></div><button class="button copy" id="copyButton" type="button">复制微信号</button></div>
+      </article>
+    </section>
+  </main>
+
+  <footer><div class="wrap">© <span id="year"></span> C402 Studio · 串口助手 v1.0</div></footer>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+    const button = document.getElementById('copyButton');
+    button.addEventListener('click', async () => {
+      const value = document.getElementById('wechat').textContent;
+      try {
+        await navigator.clipboard.writeText(value);
+        button.textContent = '已复制';
+      } catch (_) {
+        const area = document.createElement('textarea');
+        area.value = value; document.body.appendChild(area); area.select();
+        document.execCommand('copy'); area.remove(); button.textContent = '已复制';
+      }
+      setTimeout(() => button.textContent = '复制微信号', 1600);
+    });
+  </script>
+</body>
+</html>
