@@ -71,6 +71,8 @@
     .button:hover { transform: translateY(-2px); border-color: rgba(132, 174, 236, .42); background: rgba(255,255,255,.075); }
     .button.primary { border: 0; color: #06101d; background: linear-gradient(135deg, #78b3ff, #4ce3c6); box-shadow: 0 13px 34px rgba(73, 174, 218, .22); }
     .version { margin-top: 15px; color: #75859d; font-size: 13px; }
+    .verify { margin-top: 8px; color: #73849d; font-size: 11px; word-break: break-all; }
+    .verify code { color: #9cb4d3; background: transparent; padding: 0; }
     .terminal {
       position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 18px;
       width: 100%; max-width: 100%;
@@ -122,10 +124,11 @@
         <h1><span class="gradient">让串口调试与下载，变得更顺手。</span></h1>
         <p class="lead">集串口数据收发、300条快捷指令、校验计算和 T5L 在线下载于一体。为真实的嵌入式开发流程设计，也为每天都要用的工具打磨细节。</p>
         <div class="actions">
-          <a class="button primary" href="./串口助手_v1.0.exe" download>下载 Windows 版 <span>↓</span></a>
+          <a class="button primary" href="./串口助手_v1.0.zip" download>下载 ZIP 安全包 <span>↓</span></a>
           <a class="button" href="#features">查看功能</a>
         </div>
-        <div class="version">当前版本 v1.0 · 单文件 EXE · 无需安装 Python</div>
+        <div class="version">当前版本 v1.0 · ZIP 内含 EXE、README 与 SHA-256 校验说明</div>
+        <div class="verify">EXE SHA-256：<code>11265C26179F8C01DF00416D2BDC4A5BC0076F9550BC447E3156873EC31A792B</code></div>
       </div>
       <div class="terminal" aria-label="串口通讯记录示意">
         <div class="term-top"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="term-title">Serial Assistant — COM10 / 115200</span></div>
