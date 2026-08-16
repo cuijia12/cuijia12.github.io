@@ -460,7 +460,7 @@ class DownloadWindow(ttk.Frame):
         if not m: messagebox.showwarning("T5L 下载", "请选择独立下载串口"); return
         try:
             if self.acquire_serial:
-                self.acquire_serial(); self.serial_acquired = True
+                self.acquire_serial(m.group(1)); self.serial_acquired = True
             self.serial = self.serial_factory(); self.serial.open(m.group(1), int(self.baud.get()), 8, "无", "1")
             if hasattr(self.serial, "set_read_timeout"): self.serial.set_read_timeout(1)
         except Exception as e:

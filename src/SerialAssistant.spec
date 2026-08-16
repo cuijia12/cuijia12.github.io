@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='串口助手_v1.0',
+    name='串口助手_v1.1',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

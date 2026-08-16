@@ -122,13 +122,13 @@
       <div>
         <div class="eyebrow">Serial · T5L · Embedded Tools</div>
         <h1><span class="gradient">让串口调试与下载，变得更顺手。</span></h1>
-        <p class="lead">集串口数据收发、300条快捷指令、校验计算和 T5L 在线下载于一体。为真实的嵌入式开发流程设计，也为每天都要用的工具打磨细节。</p>
+        <p class="lead">集多路串口收发、300条快捷指令、校验计算和 T5L 在线下载于一体。为真实的嵌入式开发流程设计，也为每天都要用的工具打磨细节。</p>
         <div class="actions">
-          <a class="button primary" href="./串口助手_v1.0.zip" download>下载 ZIP 安全包 <span>↓</span></a>
+          <a class="button primary" href="https://github.com/cuijia12/cuijia12.github.io/releases/download/v1.1/SerialAssistant_v1.1.zip">下载 ZIP 安全包 <span>↓</span></a>
           <a class="button" href="#features">查看功能</a>
         </div>
-        <div class="version">当前版本 v1.0 · ZIP 内含 EXE、README 与 SHA-256 校验说明</div>
-        <div class="verify">EXE SHA-256：<code>5A67FA78AD14E262063BA1A5FDF4F6AF5440D3C0899684824E1AD9D0C44C739D</code></div>
+        <div class="version">当前版本 v1.1 · 新增多路串口标签 · ZIP 内含 EXE、README 与 SHA-256 校验说明</div>
+        <div class="verify">EXE SHA-256：<code>E9755C3715CD053324B04314D520FD10079367AD4B7783B6254BBD850822BA20</code></div>
       </div>
       <div class="terminal" aria-label="串口通讯记录示意">
         <div class="term-top"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="term-title">Serial Assistant — COM10 / 115200</span></div>
@@ -151,10 +151,10 @@
     <section id="features">
       <div class="section-head"><div class="eyebrow">Core Features</div><h2>一个工具，覆盖完整调试流程</h2><p>串口配置、数据观察、批量命令和屏幕下载互相衔接，减少在多个工具之间反复切换。</p></div>
       <div class="cards">
-        <article class="card"><div class="icon">01</div><h3>串口收发</h3><p>HEX/字符实时收发，支持时间戳、超时分组、自动滚屏、日志与多种字符编码。</p></article>
+        <article class="card"><div class="icon">01</div><h3>多路串口收发</h3><p>多个 COM 口可同时打开，通过状态标签切换；每路具有独立收发记录、线程和计数。</p></article>
         <article class="card"><div class="icon">02</div><h3>快捷指令</h3><p>10页共300条指令，可设置备注、延时、HEX模式和循环发送，兼容 SSCOM INI。</p></article>
         <article class="card"><div class="icon">03</div><h3>校验计算</h3><p>支持 Modbus CRC16、CCITT、CRC32、ADD和XOR，并可精确选择校验范围。</p></article>
-        <article class="card"><div class="icon">04</div><h3>T5L在线下载</h3><p>调试与下载共用串口，支持13/14/22文件、T5L51代码及下载状态恢复。</p></article>
+        <article class="card"><div class="icon">04</div><h3>T5L在线下载</h3><p>只临时占用选中的串口标签，其他串口继续工作；支持13/14/22文件、T5L51代码及状态恢复。</p></article>
         <article class="card"><div class="icon">05</div><h3>稳定工作流</h3><p>窗口布局、串口参数、指令、主题与工程路径自动保存，重新打开即可继续工作。</p></article>
         <article class="card"><div class="icon">06</div><h3>原生 Windows</h3><p>直接调用 Windows 串口 API，发布为单文件 EXE，无需额外安装运行环境。</p></article>
       </div>
@@ -181,7 +181,7 @@
     </section>
   </main>
 
-  <footer><div class="wrap">© <span id="year"></span> C402 Studio · 串口助手 v1.0</div></footer>
+  <footer><div class="wrap">© <span id="year"></span> C402 Studio · 串口助手 v1.1</div></footer>
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
     const button = document.getElementById('copyButton');

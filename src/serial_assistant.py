@@ -20,7 +20,7 @@ from t5l_download import DownloadWindow
 
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 REFERENCE_INI = os.path.abspath(os.path.join(APP_DIR, "..", "sscom5.13", "sscom51.ini"))
 T5L_TOOL_DIR = os.path.abspath(os.path.join(APP_DIR, "..", "DGUS_V7649", "DGUS_V7649-6", "TOOL"))
@@ -30,7 +30,7 @@ HELP_HTML = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>串口助手 v1.0 使用帮助</title>
+<title>串口助手 v1.1 使用帮助</title>
 <style>
 :root{--bg:#f4f7fb;--card:#fff;--text:#243247;--muted:#66758a;--line:#dce5f0;--blue:#3478f6;--green:#16845b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI Variable Text","Microsoft YaHei UI",sans-serif;line-height:1.75}
@@ -43,19 +43,19 @@ nav a{color:#dbeaff;margin-right:18px;text-decoration:none}footer{padding:0 18px
 </style>
 </head>
 <body>
-<header><div><h1>串口助手</h1><p class="subtitle">串口调试与 T5L 在线下载一体化工具</p><span class="badge">版本 v1.0 · Windows</span><nav><a href="#serial">串口调试</a><a href="#quick">快捷指令</a><a href="#t5l">T5L下载</a><a href="#faq">注意事项</a><a href="https://cuijia12.github.io/" target="_blank" rel="noopener">作者主页</a></nav></div></header>
+<header><div><h1>串口助手</h1><p class="subtitle">多串口调试与 T5L 在线下载一体化工具</p><span class="badge">版本 v1.1 · Windows</span><nav><a href="#serial">串口调试</a><a href="#quick">快捷指令</a><a href="#t5l">T5L下载</a><a href="#faq">注意事项</a><a href="https://cuijia12.github.io/" target="_blank" rel="noopener">作者主页</a></nav></div></header>
 <main>
 <section class="card"><h2>快速开始</h2><ol><li>在“串口连接”区域选择端口和波特率，其他参数可在“串口设置”中调整。</li><li>点击“打开串口”，在数据发送区输入文本或 HEX 数据。</li><li>按需选择 HEX 发送、自动换行、校验算法及校验范围，然后点击“发送数据”。</li><li>发送和接收内容会实时显示在同一个通讯记录区域。</li></ol><p class="tip">发布版为单文件 EXE，可直接在 Windows 电脑运行，无需安装 Python 或 pyserial。</p></section>
 <div class="grid">
-<section class="card" id="serial"><h2>串口调试</h2><ul><li>自动扫描 COM 端口并显示驱动名称。</li><li>支持常用波特率、数据位、校验位、停止位和流控制。</li><li>支持 HEX/字符收发以及 GBK、UTF-8、ASCII 编码。</li><li>支持接收 HEX 显示、自动滚屏、日志保存和收发计数。</li><li>接收数据到达后立即显示；时间戳超时用于判断新的数据组。</li><li>串口打开期间仍可修改参数。</li></ul></section>
+<section class="card" id="serial"><h2>多串口调试</h2><ul><li>可同时创建并打开多个 COM 口，每个串口使用独立标签、句柄和接收线程。</li><li>标签状态点：绿色表示已打开，红色表示已关闭，黄色表示正被 T5L 下载占用。</li><li>点击标签切换当前串口；通讯记录、收发计数和参数跟随标签独立切换。</li><li>点击标签右侧 × 可关闭串口并移除标签，不影响其他已打开串口。</li><li>自动扫描 COM 端口并显示驱动名称，支持常用波特率、数据位、校验位和停止位。</li><li>支持 HEX/字符收发、GBK/UTF-8/ASCII 编码、自动滚屏和日志保存。</li></ul></section>
 <section class="card"><h2>发送与校验</h2><ul><li>支持定时发送和自动追加 CRLF。</li><li>支持 Modbus CRC16、CCITT CRC16、CRC32、ADD8、ADD16、XOR8。</li><li>校验范围可选择第1至第32字节开始，结束位置支持末尾或倒数第1至第32字节。</li><li>校验同时作用于普通发送、快捷指令和循环发送。</li></ul><p>HEX 示例：<code>5A A5 04 83 00 14 01</code></p></section>
 </div>
 <section class="card" id="quick"><h2>快捷指令</h2><ul><li>共10页，每页30条，可保存300条指令。</li><li>每条指令可单独设置 HEX/字符模式、备注、延时和是否参与循环发送。</li><li>双击备注按钮可修改名称；支持导入 SSCOM INI 配置。</li><li>通过“快捷指令 → 显示快捷指令”可打开或关闭右侧区域，状态自动保存。</li></ul></section>
-<section class="card" id="t5l"><h2>T5L 在线下载</h2><ul><li>点击顶部“T5L 下载”在主窗口内切换，无需打开额外窗口。</li><li>下载与串口调试互斥共用串口，下载结束后恢复原串口状态。</li><li>记忆上次 DWIN_SET 文件夹和下载列表。</li><li>支持选择目录、单独选择文件、移出下载列表；移出只影响本次下载列表，不删除源文件。</li><li>快速选择支持13文件、14文件、22文件和 <code>T5L51.bin</code>。</li><li>支持 T5L51 8051代码更新以及 ICL 下载前停止 DGUS 刷新的防卡死处理。</li></ul><p class="tip warn">下载过程中请保持供电和串口连接稳定。目标屏幕内核必须支持相应的在线更新协议。</p></section>
+<section class="card" id="t5l"><h2>T5L 在线下载</h2><ul><li>点击顶部“T5L 下载”在主窗口内切换，无需打开额外窗口。</li><li>下载只临时占用当前选中的串口标签，其他已打开串口继续正常收发。</li><li>下载结束后恢复被占用标签原来的串口开关状态和参数。</li><li>记忆上次 DWIN_SET 文件夹和下载列表。</li><li>支持选择目录、单独选择文件、移出下载列表；移出只影响本次下载列表，不删除源文件。</li><li>快速选择支持13文件、14文件、22文件和 <code>T5L51.bin</code>。</li><li>支持 T5L51 8051代码更新以及 ICL 下载前停止 DGUS 刷新的防卡死处理。</li></ul><p class="tip warn">下载过程中请保持供电和串口连接稳定。目标屏幕内核必须支持相应的在线更新协议。</p></section>
 <section class="card"><h2>界面与数据保存</h2><ul><li>20种界面风格，分为明亮、深色、科技、护眼和经典五类。</li><li>窗口尺寸与位置、串口参数、发送内容、快捷指令、主题和工程路径都会自动保存。</li><li>配置保存在程序同目录的 <code>config.json</code>，移动 EXE 时可按需一同复制。</li></ul></section>
 <section class="card" id="faq"><h2>注意事项</h2><ul><li>本程序仅支持 Windows，串口层直接调用 Windows API。</li><li>HEX 输入可使用空格、逗号、分号、冒号或短横线分隔，必须保持每个字节为两位十六进制。</li><li>同一串口不能同时被其他串口软件占用。</li><li>若端口列表未更新，请点击“刷新”并检查 USB 串口驱动。</li></ul></section>
 <section class="card"><h2>作者信息</h2><p>微信号：<strong>c402306805</strong></p><p>个人网页：<a href="https://cuijia12.github.io/" target="_blank" rel="noopener">https://cuijia12.github.io/</a></p><p class="ok">感谢使用串口助手。</p></section>
-</main><footer>串口助手 v1.0 · 本帮助页面内置于程序，可离线查看</footer>
+</main><footer>串口助手 v1.1 · 本帮助页面内置于程序，可离线查看</footer>
 </body></html>"""
 THEMES = {
     "现代浅色": {"bg":"#F3F6FA","card":"#FFFFFF","header":"#172B4D","header_fg":"#FFFFFF","muted":"#52647A","text":"#27364B","field":"#F8FAFD","border":"#DCE4EF","primary":"#3478F6","primary_hover":"#2367DA","status_bg":"#EAF2FF","status_fg":"#2865C7","rx":"#25364D","tx":"#16744A"},
@@ -274,8 +274,11 @@ class App(tk.Tk):
         self.minsize(860, 560)
         self.configure(bg="#F3F6FA")
         self.serial = WindowsSerial()
+        self.sessions = {}
+        self.active_session_key = None
         self.t5l_active = False
         self.t5l_restore_open = False
+        self.t5l_restore_session = None
         self.rx_queue = queue.Queue()
         self.stop_event = threading.Event()
         self.rx_count = self.tx_count = 0
@@ -345,7 +348,9 @@ class App(tk.Tk):
             sub = tk.Menu(self, tearoff=False,font=("Segoe UI Variable Text",10),borderwidth=1,relief="flat")
             if title == "通讯端口":
                 sub.add_command(label="刷新端口", command=self.refresh_ports)
+                sub.add_command(label="新增串口标签", command=self.new_serial_session)
                 sub.add_command(label="打开/关闭串口", command=self.toggle_port)
+                sub.add_command(label="关闭当前标签", command=self.close_active_session)
             elif title == "串口设置":
                 sub.add_command(label="串口参数...",command=self.open_serial_settings)
             elif title == "显示":
@@ -405,6 +410,9 @@ class App(tk.Tk):
         body=ttk.Panedwindow(self,orient="horizontal"); body.pack(fill="both",expand=True,padx=14,pady=(8,7))
         left=ttk.Frame(body); right=ttk.Frame(body,width=340); body.add(left,weight=4); body.add(right,weight=2)
         self.main_pane=body; self.quick_panel=right
+        self.session_bar=ttk.Frame(left); self.session_bar.pack(fill="x",pady=(0,5))
+        self.session_tabs=ttk.Frame(self.session_bar); self.session_tabs.pack(side="left",fill="x",expand=True)
+        ttk.Button(self.session_bar,text="＋ 串口",command=self.new_serial_session).pack(side="right",padx=(5,0))
         recv_box=ttk.LabelFrame(left,text="  通讯记录  ",padding=10); recv_box.pack(fill="both",expand=True)
         recv_toolbar=ttk.Frame(recv_box); recv_toolbar.pack(fill="x")
         self.hex_recv=tk.BooleanVar(); self.timestamp=tk.BooleanVar(); self.autoscroll=tk.BooleanVar(value=True)
@@ -512,9 +520,10 @@ class App(tk.Tk):
         self.quick_inner.columnconfigure(1,weight=1)
         self.bind_quick_mousewheel(canvas)
         # 串口连接位于中间、数据发送位于最下方，通讯记录使用剩余空间。
-        recv_box.pack_forget(); send_box.pack_forget(); top.pack_forget()
+        self.session_bar.pack_forget(); recv_box.pack_forget(); send_box.pack_forget(); top.pack_forget()
         send_box.pack(side="bottom",fill="x",pady=(4,0))
         top.pack(side="bottom",fill="x",pady=(4,0))
+        self.session_bar.pack(side="top",fill="x",pady=(0,5))
         recv_box.pack(side="top",fill="both",expand=True)
         bottom=ttk.Frame(self); bottom.pack(side="bottom",fill="x",padx=14,pady=(1,10))
         self.counter=tk.StringVar(value="接收: 0 字节    发送: 0 字节")
@@ -552,29 +561,45 @@ class App(tk.Tk):
         self.serial_mode_btn.configure(font=("Segoe UI Variable Text",10,"bold"))
         self.t5l_mode_btn.configure(font=("Segoe UI Variable Text",10))
 
-    def acquire_t5l_serial(self):
-        """把当前公共串口从调试模式互斥切换给 T5L 下载。"""
+    def acquire_t5l_serial(self,requested_port=None):
+        """只把当前标签的串口互斥切换给 T5L 下载，其他串口继续工作。"""
         if self.t5l_active:
             raise RuntimeError("T5L 下载串口正在使用中")
-        self.t5l_restore_open = self.serial.is_open
-        if self.serial.is_open:
-            self.stop_event.set()
-            self.serial.close()
-            self.open_btn.config(text="打开串口")
+        requested=port_number(requested_port or self.port.get())
+        session=self.sessions.get(requested)
+        if not session:
+            label=next((label for port,label in list_port_details() if port==requested),requested)
+            session=self.create_serial_session(requested,label,self.current_serial_settings())
+        if session and self.active_session_key!=session["key"]: self.switch_serial_session(session["key"])
+        if not session: raise RuntimeError("请先选择 T5L 下载使用的串口")
+        self.t5l_restore_session=session["key"]
+        self.t5l_restore_open = session["serial"].is_open
+        if session["serial"].is_open:
+            session["stop_event"].set(); session["serial"].close()
         self.t5l_active = True
         self.open_btn.config(state="disabled")
-        self.status.set("●  串口已切换到 T5L 下载模式")
+        session["last_status"]="T5L 下载占用中"
+        self.status.set(f"●  {session['key']} 已切换到 T5L 下载模式")
+        self.refresh_session_tabs()
 
     def release_t5l_serial(self):
+        if threading.current_thread() is not threading.main_thread():
+            self.after(0,self.release_t5l_serial); return
         restore_open = self.t5l_restore_open
+        restore_key = self.t5l_restore_session
         self.t5l_restore_open = False
+        self.t5l_restore_session = None
         self.t5l_active = False
-        self.open_btn.config(state="normal", text="打开串口")
-        if restore_open:
-            self.status.set("●  正在恢复调试串口")
-            self.toggle_port()
-        else:
-            self.status.set("●  T5L 下载串口已释放")
+        if restore_key in self.sessions:
+            self.switch_serial_session(restore_key)
+            self.sessions[restore_key]["last_status"]=""
+            self.open_btn.config(state="normal", text="打开串口")
+            if restore_open:
+                self.status.set(f"●  正在恢复 {restore_key}")
+                self.toggle_port()
+            else: self.status.set(f"●  {restore_key} 的 T5L 下载串口已释放")
+        else: self.update_session_ui()
+        self.refresh_session_tabs()
 
     def open_t5l_tool_folder(self):
         if os.path.isdir(T5L_TOOL_DIR): os.startfile(T5L_TOOL_DIR)
@@ -657,11 +682,16 @@ class App(tk.Tk):
         win.geometry(f"+{max(0,x)}+{max(0,y)}")
 
     def apply_serial_dialog(self,win,values):
-        old_port=self.port.get()
+        old_key=self.active_session_key; self.save_active_session_state()
         self.port.set(values["端口"].get()); self.baud.set(values["波特率"].get()); self.data_bits.set(values["数据位"].get())
         self.stop_bits.set(values["停止位"].get()); self.parity.set(values["校验位"].get()); self.flow_control.set(values["流控制"].get())
-        win.destroy(); self.save_config()
-        if self.serial.is_open: self.serial_parameter_changed("端口" if old_port!=self.port.get() else "参数")
+        win.destroy()
+        new_key=port_number(self.port.get())
+        if new_key!=old_key:
+            self.ensure_serial_session(self.port.get(),self.current_serial_settings())
+        else:
+            self.serial_parameter_changed("参数")
+        self.save_config()
 
     def create_checkmark_style(self,style):
         """使用清晰的对勾复选框，替代 clam 主题默认的叉号。"""
@@ -718,6 +748,7 @@ class App(tk.Tk):
                                  selectbackground=c["primary"],selectforeground=c["header_fg"],inactiveselectbackground=c["primary"])
         self.recv.tag_configure("rx",foreground=c["rx"]); self.recv.tag_configure("tx",foreground=c["tx"])
         for w in self.winfo_children(): self._theme_canvas(w,c)
+        self.refresh_session_tabs()
 
     def theme_selected(self):
         self.apply_theme(); self.save_config()
@@ -740,6 +771,7 @@ class App(tk.Tk):
             self.send_text.insert("1.0",c["send_text"])
         self.send_text.edit_modified(False)
         self.refresh_ports()
+        self.restore_serial_sessions()
 
     def on_send_text_modified(self,_event=None):
         if not self.send_text.edit_modified(): return
@@ -748,6 +780,7 @@ class App(tk.Tk):
         self.send_save_job=self.after(500,self.save_config)
 
     def collect_config(self):
+        self.save_active_session_state()
         window_state=self.state()
         # 最大化时 geometry() 不是用户最后调整的小窗口尺寸，沿用已记录值。
         window_geometry=self.geometry() if window_state=="normal" else self.config_data.get("window_geometry","")
@@ -761,6 +794,8 @@ class App(tk.Tk):
                 "theme":self.theme_name.get(),"port":self.port.get(),"baud":self.baud.get(),"data_bits":self.data_bits.get(),"parity":self.parity.get(),"stop_bits":self.stop_bits.get(),"flow_control":self.flow_control.get(),
                 "interval":self.interval.get(),"encoding":self.encoding.get(),"checksum":self.checksum.get(),"checksum_start":self.checksum_start.get(),"checksum_end":self.checksum_end.get(),"hex_recv":self.hex_recv.get(),"hex_send":self.hex_send.get(),"timestamp":self.timestamp.get(),"newline":self.newline.get(),
                 "timestamp_timeout":self.timestamp_timeout.get(),
+                "serial_sessions":[self.session_config(s) for s in self.sessions.values()],
+                "active_serial_port":self.active_session_key or "",
                 "send_text":self.send_text.get("1.0","end-1c"),
                 "quick":[{"name":r[0].get(),"data":r[1].get(),"hex":r[2].get(),"delay":r[3].get(),"enabled":r[4].get()} for r in self.quick_rows]}
 
@@ -772,51 +807,197 @@ class App(tk.Tk):
             with open(CONFIG_FILE,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False,indent=2)
         except OSError: pass
 
+    def current_serial_settings(self):
+        return {"port":self.port.get(),"baud":self.baud.get(),"data_bits":self.data_bits.get(),
+                "parity":self.parity.get(),"stop_bits":self.stop_bits.get(),"flow_control":self.flow_control.get()}
+
+    def session_config(self,session):
+        settings=dict(session.get("settings",{}))
+        settings["port"]=session.get("label",session["key"])
+        return settings
+
+    def save_active_session_state(self):
+        if self.active_session_key in self.sessions:
+            session=self.sessions[self.active_session_key]
+            session["settings"]=self.current_serial_settings()
+            session["label"]=self.port.get() or session["key"]
+            session["rx_count"]=self.rx_count; session["tx_count"]=self.tx_count
+
+    def create_serial_session(self,key,label=None,settings=None):
+        key=port_number(key)
+        if not re.fullmatch(r"COM\d+",key,re.IGNORECASE): return None
+        if key in self.sessions: return self.sessions[key]
+        base={"port":label or key,"baud":"115200","data_bits":"8","parity":"无","stop_bits":"1","flow_control":"无"}
+        if settings: base.update({k:v for k,v in settings.items() if k in base and v not in (None,"")})
+        session={"key":key,"label":label or base["port"] or key,"serial":WindowsSerial(),
+                 "stop_event":threading.Event(),"settings":base,"rx_count":0,"tx_count":0,
+                 "history":[],"last_rx_at":None,"last_status":""}
+        self.sessions[key]=session
+        self.refresh_session_tabs()
+        return session
+
+    def ensure_serial_session(self,value=None,settings=None):
+        value=value or self.port.get(); key=port_number(value)
+        session=self.sessions.get(key) or self.create_serial_session(key,value,settings)
+        if session: self.switch_serial_session(key,save_current=False)
+        return session
+
+    def restore_serial_sessions(self):
+        saved=self.config_data.get("serial_sessions",[])
+        if isinstance(saved,list):
+            for item in saved:
+                if not isinstance(item,dict): continue
+                key=port_number(item.get("port",""))
+                if re.fullmatch(r"COM\d+",key,re.IGNORECASE): self.create_serial_session(key,item.get("port",key),item)
+        active=port_number(self.config_data.get("active_serial_port",""))
+        if active in self.sessions: self.switch_serial_session(active)
+        elif self.sessions: self.switch_serial_session(next(iter(self.sessions)))
+        else: self.refresh_session_tabs(); self.update_session_ui()
+
+    def new_serial_session(self):
+        self.save_active_session_state()
+        details=list_port_details(); unused=[(p,l) for p,l in details if p not in self.sessions]
+        selected=port_number(self.port.get())
+        candidate=next(((p,l) for p,l in unused if p==selected),unused[0] if unused else (None,None))
+        if not candidate[0]:
+            messagebox.showinfo("新增串口","没有可新增的串口。已有串口请直接点击上方标签切换。")
+            return
+        self.create_serial_session(candidate[0],candidate[1]); self.switch_serial_session(candidate[0]); self.save_config()
+
+    def switch_serial_session(self,key,save_current=True):
+        if key not in self.sessions: return
+        if save_current: self.save_active_session_state()
+        session=self.sessions[key]; self.active_session_key=key
+        self.serial=session["serial"]; self.stop_event=session["stop_event"]
+        self.rx_count=session["rx_count"]; self.tx_count=session["tx_count"]
+        self.traffic_history=session["history"]
+        settings=session["settings"]
+        self.port.set(session["label"])
+        for var,name in ((self.baud,"baud"),(self.data_bits,"data_bits"),(self.parity,"parity"),
+                         (self.stop_bits,"stop_bits"),(self.flow_control,"flow_control")):
+            var.set(settings.get(name,var.get()))
+        self.flush_rx_pending(); self.render_traffic_history(); self.update_counter(); self.update_session_ui(); self.refresh_session_tabs()
+
+    def close_serial_session(self,key,ask=True):
+        session=self.sessions.get(key)
+        if not session: return
+        if self.t5l_active and key==self.t5l_restore_session:
+            messagebox.showwarning("串口正在使用","该串口正在执行 T5L 下载，请先停止下载。")
+            return
+        if session["serial"].is_open and ask and not messagebox.askyesno("关闭串口标签",f"{key} 正在打开，是否关闭串口并移除标签？"):
+            return
+        session["stop_event"].set(); session["serial"].close(); del self.sessions[key]
+        if self.active_session_key==key:
+            self.active_session_key=None
+            if self.sessions: self.switch_serial_session(next(iter(self.sessions)),save_current=False)
+            else:
+                self.serial=WindowsSerial(); self.stop_event=threading.Event(); self.rx_count=self.tx_count=0
+                self.traffic_history=[]; self.recv.delete("1.0","end"); self.update_counter(); self.update_session_ui()
+        self.refresh_session_tabs(); self.save_config()
+
+    def close_active_session(self):
+        if self.active_session_key: self.close_serial_session(self.active_session_key)
+
+    def refresh_session_tabs(self):
+        if not hasattr(self,"session_tabs"): return
+        for child in self.session_tabs.winfo_children(): child.destroy()
+        c=THEMES.get(self.theme_name.get(),THEMES["现代浅色"])
+        if not self.sessions:
+            tk.Label(self.session_tabs,text="暂无串口标签，选择端口后点击“打开串口”",bg=c["bg"],fg=c["muted"],
+                     font=("Segoe UI Variable Text",9)).pack(side="left",padx=6)
+            return
+        for key,session in self.sessions.items():
+            active=key==self.active_session_key; bg=c["status_bg"] if active else c["card"]
+            tab=tk.Frame(self.session_tabs,bg=bg,highlightthickness=1,highlightbackground=c["primary"] if active else c["border"],cursor="hand2")
+            tab.pack(side="left",padx=(0,4))
+            dot="#E5A000" if self.t5l_active and key==self.t5l_restore_session else ("#1FA34A" if session["serial"].is_open else "#E43D3D")
+            widgets=[tk.Label(tab,text="●",bg=bg,fg=dot,font=("Segoe UI Symbol",10)),
+                     tk.Label(tab,text=key,bg=bg,fg=c["text"],font=("Segoe UI Variable Text",10,"bold" if active else "normal")),
+                     tk.Label(tab,text="×",bg=bg,fg=c["muted"],font=("Segoe UI Variable Text",12),padx=7)]
+            for widget in widgets: widget.pack(side="left",padx=(6,0) if widget is widgets[0] else 2,pady=5)
+            for widget in (tab,widgets[0],widgets[1]): widget.bind("<Button-1>",lambda _e,k=key:self.switch_serial_session(k))
+            widgets[2].bind("<Button-1>",lambda _e,k=key:self.close_serial_session(k))
+
+    def update_session_ui(self):
+        session=self.sessions.get(self.active_session_key)
+        if not session:
+            self.open_btn.config(text="打开串口",state="normal"); self.status.set("●  串口未打开")
+            return
+        if self.t5l_active and self.active_session_key==self.t5l_restore_session:
+            self.open_btn.config(text="T5L 使用中",state="disabled")
+            self.status.set(f"●  {session['key']} 已切换到 T5L 下载模式")
+            return
+        if session["serial"].is_open:
+            self.open_btn.config(text="关闭串口",state="normal")
+            try: self.show_actual_settings(session["serial"].get_settings())
+            except Exception: self.status.set(f"●  {session['key']} 已打开")
+        else:
+            self.open_btn.config(text="打开串口",state="normal")
+            self.status.set(session.get("last_status") or f"●  {session['key']} 已关闭")
+
     def refresh_ports(self):
         details=list_port_details(); vals=[label for _,label in details]; self.port_box["values"]=vals
+        labels=dict(details)
+        for key,session in self.sessions.items():
+            if key in labels:
+                session["label"]=labels[key]; session["settings"]["port"]=labels[key]
         current=port_number(self.port.get())
         match=next((label for port,label in details if port==current),None)
         if match: self.port.set(match)
         elif vals: self.port.set(vals[0])
         elif not self.port.get(): self.status.set("未发现串口设备")
+        if self.active_session_key in self.sessions: self.port.set(self.sessions[self.active_session_key]["label"])
+        self.refresh_session_tabs()
 
     def toggle_port(self):
-        if self.t5l_active:
+        if self.t5l_active and self.active_session_key==self.t5l_restore_session:
             messagebox.showwarning("串口正在使用", "当前串口已切换到 T5L 下载模式，请先停止下载。")
             return
-        if self.serial.is_open:
-            self.stop_event.set(); self.serial.close(); self.open_btn.config(text="打开串口")
-            self.status.set("●  串口已关闭"); return
         if not self.port.get(): messagebox.showwarning("提示","请选择串口"); return
+        selected=port_number(self.port.get())
+        session=self.sessions.get(selected)
+        if not session:
+            session=self.create_serial_session(selected,self.port.get(),self.current_serial_settings())
+        if not session: messagebox.showwarning("提示","请选择有效串口"); return
+        if self.active_session_key!=selected: self.switch_serial_session(selected,save_current=False)
+        if session["serial"].is_open:
+            session["stop_event"].set(); session["serial"].close(); session["last_status"]=f"●  {selected} 已关闭"
+            self.update_session_ui(); self.refresh_session_tabs(); self.save_config(); return
         try:
-            actual_port=port_number(self.port.get())
-            self.serial.open(actual_port,self.baud.get(),self.data_bits.get(),self.parity.get(),self.stop_bits.get())
-            actual=self.serial.get_settings()
+            self.save_active_session_state(); session["stop_event"].clear()
+            session["serial"].open(selected,self.baud.get(),self.data_bits.get(),self.parity.get(),self.stop_bits.get())
+            actual=session["serial"].get_settings()
             expected_parity={"无":0,"奇":1,"偶":2,"标记":3,"空格":4}[self.parity.get()]
             expected_stop={"1":0,"1.5":1,"2":2}[self.stop_bits.get()]
             mismatch=(actual["baud"]!=int(self.baud.get()) or actual["data"]!=int(self.data_bits.get()) or
                       actual["parity"]!=expected_parity or actual["stop"]!=expected_stop)
             if mismatch:
-                self.serial.close()
+                session["serial"].close()
                 raise RuntimeError(f"串口驱动未接受所选参数。驱动实际值：{actual}")
-            self.stop_event.clear(); threading.Thread(target=self.reader,daemon=True).start()
-            self.open_btn.config(text="关闭串口"); self.show_actual_settings(actual)
-        except Exception as e: messagebox.showerror("打开失败",str(e))
+            threading.Thread(target=self.reader,args=(selected,session),daemon=True).start()
+            session["last_status"]=""; self.update_session_ui(); self.refresh_session_tabs(); self.save_config()
+        except Exception as e:
+            session["last_status"]=f"打开失败: {e}"; self.update_session_ui(); self.refresh_session_tabs(); messagebox.showerror("打开失败",str(e))
 
     def show_actual_settings(self,actual=None):
         actual=actual or self.serial.get_settings()
         parity_short={0:"N",1:"O",2:"E",3:"M",4:"S"}.get(actual["parity"],"?")
         stop_short={0:"1",1:"1.5",2:"2"}.get(actual["stop"],"?")
-        self.status.set(f"●  {port_number(self.port.get())}  {actual['baud']} / {actual['data']}{parity_short}{stop_short}")
+        port=self.active_session_key or port_number(self.port.get())
+        self.status.set(f"●  {port}  {actual['baud']} / {actual['data']}{parity_short}{stop_short}")
 
     def serial_parameter_changed(self,name):
-        if not self.serial.is_open: return
         if name=="端口":
-            # 端口本身不能在原句柄上切换，关闭后用新端口重新打开。
-            self.stop_event.set(); self.serial.close(); self.open_btn.config(text="打开串口")
-            self.after(50,self.toggle_port); return
+            selected=port_number(self.port.get())
+            if re.fullmatch(r"COM\d+",selected,re.IGNORECASE):
+                self.ensure_serial_session(self.port.get(),self.current_serial_settings()); self.save_config()
+            return
+        session=self.sessions.get(self.active_session_key)
+        if not session: return
+        session["settings"]=self.current_serial_settings()
+        if not session["serial"].is_open: self.save_config(); return
         try:
-            actual=self.serial.configure(self.baud.get(),self.data_bits.get(),self.parity.get(),self.stop_bits.get())
+            actual=session["serial"].configure(self.baud.get(),self.data_bits.get(),self.parity.get(),self.stop_bits.get())
             expected={"baud":int(self.baud.get()),"data":int(self.data_bits.get()),
                       "parity":{"无":0,"奇":1,"偶":2,"标记":3,"空格":4}[self.parity.get()],
                       "stop":{"1":0,"1.5":1,"2":2}[self.stop_bits.get()]}
@@ -826,26 +1007,36 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror("参数设置失败",str(e))
 
-    def reader(self):
-        while not self.stop_event.is_set() and self.serial.is_open:
+    def reader(self,key,session):
+        while not session["stop_event"].is_set() and session["serial"].is_open:
             try:
-                data=self.serial.read()
-                if data: self.rx_queue.put(data)
+                data=session["serial"].read()
+                if data: self.rx_queue.put((key,data))
             except Exception as e:
-                self.rx_queue.put(e); break
+                self.rx_queue.put((key,e)); break
 
     def poll_rx(self):
         try:
             while True:
-                item=self.rx_queue.get_nowait()
+                key,item=self.rx_queue.get_nowait(); session=self.sessions.get(key)
+                if not session: continue
                 if isinstance(item,Exception):
-                    self.flush_rx_pending()
-                    self.status.set(f"接收错误: {item}"); self.append_traffic("错误", str(item), "error")
-                    self.serial.close(); self.open_btn.config(text="打开串口"); continue
-                self.rx_count+=len(item)
-                if self.timestamp.get(): self.queue_rx_traffic(item)
-                else: self.append_traffic_data("收←◆",item,"rx")
-                self.update_counter()
+                    record=(datetime.now(),"错误",str(item).encode("utf-8",errors="replace"),"error",True)
+                    session["history"].append(record); session["last_status"]=f"接收错误: {item}"
+                    session["serial"].close(); session["stop_event"].set()
+                    if key==self.active_session_key:
+                        self.insert_traffic_record(record); self.update_session_ui()
+                    self.refresh_session_tabs(); continue
+                session["rx_count"]+=len(item)
+                now=time.monotonic(); last=session.get("last_rx_at")
+                new_packet=last is None or (now-last)*1000>=self.timestamp_timeout_ms()
+                session["last_rx_at"]=now
+                record=(datetime.now(),"收←◆",bytes(item),"rx",new_packet)
+                session["history"].append(record)
+                if len(session["history"])>10000: session["history"]=session["history"][-10000:]
+                if key==self.active_session_key:
+                    self.traffic_history=session["history"]; self.rx_count=session["rx_count"]
+                    self.insert_traffic_record(record); self.update_counter()
         except queue.Empty: pass
         self.poll_job=self.after(60,self.poll_rx)
 
@@ -893,6 +1084,10 @@ class App(tk.Tk):
 
     def send_data(self,text,is_hex,apply_checksum=False):
         try:
+            session=self.sessions.get(self.active_session_key)
+            if not session: raise RuntimeError("请先选择并打开一个串口标签")
+            if self.t5l_active and self.active_session_key==self.t5l_restore_session:
+                raise RuntimeError("当前串口正在执行 T5L 下载")
             data=self.bytes_from_text(text,is_hex)
             if not data: return
             if apply_checksum: data=self.append_checksum(data,self.checksum.get())
@@ -902,7 +1097,8 @@ class App(tk.Tk):
             # before touching the serial port so a click is still visible when
             # the port is closed, busy, or the driver reports a write failure.
             self.recv.update_idletasks()
-            sent=self.serial.write(data); self.tx_count+=sent; self.update_counter(); self.status.set(f"已发送 {sent} 字节")
+            sent=session["serial"].write(data); session["tx_count"]+=sent; self.tx_count=session["tx_count"]
+            self.update_counter(); self.status.set(f"{session['key']} 已发送 {sent} 字节")
         except Exception as e: messagebox.showerror("发送失败",str(e)); self.timer_on.set(False)
 
     def append_traffic(self, direction, content, tag):
@@ -916,7 +1112,7 @@ class App(tk.Tk):
 
     def append_traffic_data(self,direction,data,tag,show_timestamp=True):
         self.traffic_history.append((datetime.now(),direction,bytes(data),tag,show_timestamp))
-        if len(self.traffic_history)>10000: self.traffic_history=self.traffic_history[-10000:]
+        if len(self.traffic_history)>10000: del self.traffic_history[:-10000]
         self.insert_traffic_record(self.traffic_history[-1])
 
     def timestamp_timeout_ms(self):
@@ -1059,11 +1255,17 @@ class App(tk.Tk):
         if path:
             with open(path,"w",encoding="utf-8") as f: f.write(self.recv.get("1.0","end-1c"))
 
-    def clear_count(self): self.rx_count=self.tx_count=0; self.update_counter()
+    def clear_count(self):
+        self.rx_count=self.tx_count=0
+        if self.active_session_key in self.sessions:
+            self.sessions[self.active_session_key]["rx_count"]=0; self.sessions[self.active_session_key]["tx_count"]=0
+        self.update_counter()
     def update_counter(self): self.counter.set(f"接收: {self.rx_count} 字节    发送: {self.tx_count} 字节")
 
     def on_close(self):
-        self.timer_on.set(False); self.stop_event.set(); self.serial.close(); self.flush_rx_pending()
+        self.timer_on.set(False); self.flush_rx_pending()
+        for session in self.sessions.values():
+            session["stop_event"].set(); session["serial"].close()
         self.t5l_restore_open = False
         if getattr(self, "t5l_window", None): self.t5l_window.close_window()
         if self.poll_job:
