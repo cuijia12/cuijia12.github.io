@@ -275,6 +275,9 @@ def port_number(value):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+        # Tk 默认会在控件和主题尚未创建完成时先绘制主窗口，复杂表格会短暂
+        # 显示成黑色占位块。启动阶段先隐藏，全部布局完成后再一次性呈现。
+        self.withdraw()
         self.title(f"串口助手 v{APP_VERSION}")
         screen_w=self.winfo_screenwidth(); screen_h=self.winfo_screenheight()
         self.minsize(860, 560)
@@ -312,13 +315,108 @@ class App(tk.Tk):
             self.geometry(f"{min(1240,screen_w-80)}x{min(760,screen_h-100)}+30+30")
         self.theme_name = tk.StringVar(value=self.config_data.get("theme", "现代浅色"))
         self.quick_panel_visible = tk.BooleanVar(value=self.config_data.get("quick_panel_visible", True))
+        self._startup_complete=False
+        self._was_minimized=False
+        self._restore_cover=None
+        self._quick_hidden_for_restore=False
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.bind("<Unmap>",self.on_root_unmap,add="+")
+        self.bind("<Map>",self.on_root_map,add="+")
         self.create_ui()
         self.refresh_ports()
         self.apply_config()
         self.poll_job=self.after(60, self.poll_rx)
         self.start_agent_api()
-        if self.config_data.get("window_state")=="zoomed": self.after(0,lambda:self.state("zoomed"))
+        self.after_idle(self.show_ready_window)
+
+    def show_ready_window(self):
+        """在首帧布局完成后显示窗口，消除启动时约 0.2 秒的黑框闪烁。"""
+        self.update_idletasks()
+        target_geometry=self.geometry()
+        match=re.match(r"(\d+x\d+)[+-]",target_geometry)
+        size=match.group(1) if match else "1200x720"
+        # 透明分层窗口在部分旧显卡上仍会留下黑色子控件；改在屏幕外进行
+        # 一次真实合成，让 ttk.Entry/Combobox 获得完整的首帧像素。
+        self.geometry(f"{size}-20000-20000")
+        self.deiconify()
+        self.update_idletasks()
+        self.update()
+        self.force_native_redraw()
+        self.withdraw()
+        self.geometry(target_geometry)
+        self.update_idletasks()
+        self.after_idle(self.reveal_painted_window)
+
+    def reveal_painted_window(self):
+        self.deiconify()
+        if self.config_data.get("window_state")=="zoomed": self.state("zoomed")
+        self.force_native_redraw()
+        self._startup_complete=True
+        self.lift()
+
+    def on_root_unmap(self,event):
+        if event.widget is self and self._startup_complete:
+            self._was_minimized=True
+            # 在窗口不可见期间预先盖住全部复杂控件；恢复首帧只需绘制一个
+            # 纯色 Frame，避免显卡把数百个控件的黑色中间态暴露出来。
+            c=THEMES.get(self.theme_name.get(),THEMES["现代浅色"])
+            if self._restore_cover is None:
+                # 只覆盖快捷指令面板。左侧内容由 DWM 保留，不再出现整窗闪烁。
+                self._restore_cover=tk.Frame(self.quick_panel,bg=c["bg"],borderwidth=0,highlightthickness=0)
+            else:
+                self._restore_cover.configure(bg=c["bg"])
+            self._restore_cover.place(x=0,y=0,relwidth=1,relheight=1)
+            self._restore_cover.lift()
+            # 快捷指令区包含大量 Entry/Button。Windows 从最小化恢复时会先把
+            # 这些子控件映射成黑色占位，再补画主题背景。不可见期间先解除
+            # 映射，恢复时在遮罩下面重新布局，避免中间帧出现在屏幕上。
+            panes=self.main_pane.panes()
+            self._quick_hidden_for_restore=(str(self.quick_panel) in panes)
+            if self._quick_hidden_for_restore:
+                self.quick_canvas.itemconfigure(self.quick_window_id,state="hidden")
+            self.update_idletasks()
+
+    def on_root_map(self,event):
+        if event.widget is not self or not self._startup_complete or not self._was_minimized: return
+        self._was_minimized=False
+        if self._quick_hidden_for_restore and self.quick_panel_visible.get():
+            self.quick_canvas.itemconfigure(self.quick_window_id,state="normal")
+        self._quick_hidden_for_restore=False
+        if self._restore_cover is not None:
+            self._restore_cover.lift()
+        # 在遮罩下面完成所有快捷控件的重新映射和主题绘制。
+        self.update_idletasks()
+        self.force_content_redraw_fast()
+        self.after(1,self.finish_restore_redraw)
+
+    def finish_restore_redraw(self):
+        if self._restore_cover is not None:
+            self._restore_cover.lift()
+        self.update_idletasks()
+        if self._restore_cover is not None:
+            self._restore_cover.place_forget()
+
+    def force_content_redraw_fast(self):
+        """同步刷新子控件并擦除黑底，不重绘边框，也不等待 DWM。"""
+        try:
+            hwnd=wintypes.HWND(self.winfo_id())
+            flags=0x0001|0x0004|0x0080|0x0100  # INVALIDATE/ERASE/ALLCHILDREN/UPDATENOW
+            ctypes.windll.user32.RedrawWindow(hwnd,None,None,flags)
+            ctypes.windll.user32.UpdateWindow(hwnd)
+        except Exception:
+            self.update_idletasks()
+
+    def force_native_redraw(self):
+        """同步刷新根窗口及全部原生子控件，避免 DWM 显示未初始化的黑底。"""
+        try:
+            hwnd=wintypes.HWND(self.winfo_id())
+            flags=0x0001|0x0004|0x0080|0x0100|0x0400  # INVALIDATE/ERASE/ALLCHILDREN/UPDATENOW/FRAME
+            ctypes.windll.user32.RedrawWindow(hwnd,None,None,flags)
+            ctypes.windll.user32.UpdateWindow(hwnd)
+            try: ctypes.windll.dwmapi.DwmFlush()
+            except Exception: pass
+        except Exception:
+            self.update_idletasks()
 
     def load_config(self):
         try:
@@ -509,6 +607,7 @@ class App(tk.Tk):
         scroll=ttk.Scrollbar(quick,orient="vertical",command=canvas.yview)
         self.quick_inner=ttk.Frame(canvas); self.quick_inner.bind("<Configure>",lambda e:canvas.configure(scrollregion=canvas.bbox("all")))
         window_id=canvas.create_window((0,0),window=self.quick_inner,anchor="nw")
+        self.quick_window_id=window_id
         canvas.bind("<Configure>",lambda e:canvas.itemconfigure(window_id,width=e.width))
         canvas.configure(yscrollcommand=scroll.set); scroll.pack(side="right",fill="y"); canvas.pack(fill="both",expand=True)
         ttk.Label(self.quick_inner,text="HEX").grid(row=0,column=0); ttk.Label(self.quick_inner,text="字符串（双击注释）").grid(row=0,column=1); ttk.Label(self.quick_inner,text="点击发送").grid(row=0,column=2); ttk.Label(self.quick_inner,text="延时 ms").grid(row=0,column=3); ttk.Label(self.quick_inner,text="循环").grid(row=0,column=4)
@@ -1082,15 +1181,24 @@ class App(tk.Tk):
     def restore_serial_sessions(self):
         saved=self.config_data.get("serial_sessions",[])
         restore_open=[]
+        available=dict(list_port_details())
         if isinstance(saved,list):
             for item in saved:
                 if not isinstance(item,dict): continue
                 key=port_number(item.get("port",""))
                 if re.fullmatch(r"COM\d+",key,re.IGNORECASE):
-                    self.create_serial_session(key,item.get("port",key),item)
-                    if item.get("is_open",False): restore_open.append(key)
+                    # 保留各端口独立配置；当前电脑存在该端口时使用本机驱动名称。
+                    self.create_serial_session(key,available.get(key,item.get("port",key)),item)
+                    # 换电脑或设备未插入时绝不自动尝试打开，避免启动即报 WinError 2。
+                    if key in available and item.get("is_open",False): restore_open.append(key)
         active=port_number(self.config_data.get("active_serial_port",""))
-        if active in self.sessions: self.switch_serial_session(active)
+        if active in self.sessions and active in available: self.switch_serial_session(active)
+        elif available:
+            first_available=next(iter(available))
+            if first_available not in self.sessions:
+                self.create_serial_session(first_available,available[first_available],self.current_serial_settings())
+            self.switch_serial_session(first_available)
+        elif active in self.sessions: self.switch_serial_session(active)
         elif self.sessions: self.switch_serial_session(next(iter(self.sessions)))
         else: self.refresh_session_tabs(); self.update_session_ui()
         # 全部标签与参数恢复完成后，再逐一恢复上次处于打开状态的串口。
@@ -1098,7 +1206,7 @@ class App(tk.Tk):
             if key not in self.sessions: continue
             self.switch_serial_session(key)
             if not self.sessions[key]["serial"].is_open: self.toggle_port()
-        if active in self.sessions: self.switch_serial_session(active)
+        if active in self.sessions and active in available: self.switch_serial_session(active)
 
     def new_serial_session(self):
         self.save_active_session_state()
