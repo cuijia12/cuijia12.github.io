@@ -23,6 +23,9 @@ from t5l_download import DownloadWindow, file_id
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
 APP_VERSION = "1.1"
+MAX_TRAFFIC_RECORDS = 5000
+VISIBLE_TRAFFIC_RECORDS = 1000
+RX_UI_TIME_BUDGET = 0.010
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 REFERENCE_INI = os.path.abspath(os.path.join(APP_DIR, "..", "sscom5.13", "sscom51.ini"))
 T5L_TOOL_DIR = os.path.abspath(os.path.join(APP_DIR, "..", "DGUS_V7649", "DGUS_V7649-6", "TOOL"))
@@ -283,9 +286,11 @@ class App(tk.Tk):
         self.t5l_restore_open = False
         self.t5l_restore_session = None
         self.rx_queue = queue.Queue()
+        self.reconfigure_queue = queue.Queue()
         self.stop_event = threading.Event()
         self.rx_count = self.tx_count = 0
         self.traffic_history = []
+        self.display_trim_counter = 0
         self.rx_pending = bytearray(); self.rx_pending_started = None; self.rx_flush_job = None
         self.cycle_job = None
         self.cycle_index = 0
@@ -438,7 +443,7 @@ class App(tk.Tk):
         ttk.Button(recv_toolbar,text="清空",command=self.clear_traffic).pack(side="right",padx=5)
         recv_content=ttk.Frame(recv_box,style="Card.TFrame"); recv_content.pack(fill="both",expand=True,pady=(8,0))
         recv_scroll=ttk.Scrollbar(recv_content,orient="vertical",style="Vertical.TScrollbar")
-        self.recv=tk.Text(recv_content,wrap="word",font=("Cascadia Code",10),undo=True,bg="#F8FAFD",fg="#27364B",insertbackground="#3478F6",selectbackground="#CFE0FF",relief="flat",padx=12,pady=8,spacing1=0,spacing2=0,spacing3=1,yscrollcommand=recv_scroll.set)
+        self.recv=tk.Text(recv_content,wrap="word",font=("Cascadia Code",10),undo=False,bg="#F8FAFD",fg="#27364B",insertbackground="#3478F6",selectbackground="#CFE0FF",relief="flat",padx=12,pady=8,spacing1=0,spacing2=0,spacing3=1,yscrollcommand=recv_scroll.set)
         recv_scroll.configure(command=self.recv.yview); recv_scroll.pack(side="right",fill="y"); self.recv.pack(side="left",fill="both",expand=True)
         self.bind_context_menu(self.recv,readonly=True)
         self.recv.tag_configure("rx", foreground="#25364D")
@@ -847,6 +852,8 @@ class App(tk.Tk):
                 "t5l_project":self.config_data.get("t5l_project",os.path.join(T5L_TOOL_DIR,"DWIN_SET")),
                 "t5l_excluded_files":self.config_data.get("t5l_excluded_files",[]),
                 "t5l_quick_select":self.config_data.get("t5l_quick_select",{}),
+                "t5l_download_port":(self.t5l_window.port.get() if getattr(self,"t5l_window",None) else (self.config_data.get("t5l_download_port","") or self.port.get())),
+                "t5l_download_baud":(self.t5l_window.baud.get() if getattr(self,"t5l_window",None) else self.config_data.get("t5l_download_baud","115200")),
                 "quick_page":self.quick_page_var.get(),
                 "quick_panel_visible":self.quick_panel_visible.get(),
                 "quick_cycle_flags_v1":True,
@@ -958,7 +965,7 @@ class App(tk.Tk):
         if checksum and checksum!="None": data=self.append_checksum(data,checksum)
         self.append_traffic_data("发→◇",data,"tx"); sent=session["serial"].write(data)
         session["tx_count"]+=sent; self.tx_count=session["tx_count"]; self.update_counter()
-        self.status.set(f"{key} 已发送 {sent} 字节"); self.save_config()
+        self.status.set(f"{key} 已发送 {sent} 字节")
         return {"port":key,"bytes":sent,"hex":" ".join(f"{byte:02X}" for byte in data)}
 
     def agent_receive_serial(self,payload):
@@ -1060,7 +1067,8 @@ class App(tk.Tk):
         if settings: base.update({k:v for k,v in settings.items() if k in base and v not in (None,"")})
         session={"key":key,"label":label or base["port"] or key,"serial":WindowsSerial(),
                  "stop_event":threading.Event(),"settings":base,"rx_count":0,"tx_count":0,
-                 "history":[],"agent_rx_buffer":[],"last_rx_at":None,"last_status":""}
+                 "history":[],"agent_rx_buffer":[],"last_rx_at":None,"last_status":"",
+                 "reconfigure_generation":0,"reconfigure_lock":threading.Lock()}
         self.sessions[key]=session
         self.refresh_session_tabs()
         return session
@@ -1250,29 +1258,63 @@ class App(tk.Tk):
         if name in ("波特率","参数"):
             self.sync_t5l_baud_from_serial(session["key"],self.baud.get())
         if not session["serial"].is_open: self.save_config(); return
-        try:
-            actual=session["serial"].configure(self.baud.get(),self.data_bits.get(),self.parity.get(),self.stop_bits.get())
-            expected={"baud":int(self.baud.get()),"data":int(self.data_bits.get()),
-                      "parity":{"无":0,"奇":1,"偶":2,"标记":3,"空格":4}[self.parity.get()],
-                      "stop":{"1":0,"1.5":1,"2":2}[self.stop_bits.get()]}
-            if any(actual[k]!=v for k,v in expected.items()):
-                raise RuntimeError(f"驱动实际参数与选择不一致：{actual}")
-            self.show_actual_settings(actual); self.save_config()
-        except Exception as e:
-            messagebox.showerror("参数设置失败",str(e))
+        baud=self.baud.get(); data_bits=self.data_bits.get(); parity=self.parity.get(); stop_bits=self.stop_bits.get()
+        expected={"baud":int(baud),"data":int(data_bits),
+                  "parity":{"无":0,"奇":1,"偶":2,"标记":3,"空格":4}[parity],
+                  "stop":{"1":0,"1.5":1,"2":2}[stop_bits]}
+        session["reconfigure_generation"]+=1
+        generation=session["reconfigure_generation"]
+        self.status.set(f"●  {session['key']}  正在切换参数…")
+        # USB 串口驱动的 SetCommState 偶尔会等待约 0.2 秒；放到后台执行，
+        # 避免通讯记录和发送输入框在此期间一起停止刷新。
+        def configure_worker():
+            try:
+                with session["reconfigure_lock"]:
+                    actual=session["serial"].configure(baud,data_bits,parity,stop_bits)
+                error=None
+                if any(actual[k]!=v for k,v in expected.items()):
+                    error=RuntimeError(f"驱动实际参数与选择不一致：{actual}")
+            except Exception as exc:
+                actual=None; error=exc
+            self.reconfigure_queue.put((session["key"],generation,actual,error))
+        threading.Thread(target=configure_worker,daemon=True).start()
+        self.save_config()
+
+    def poll_reconfigure_results(self):
+        while True:
+            try: key,generation,actual,error=self.reconfigure_queue.get_nowait()
+            except queue.Empty: return
+            session=self.sessions.get(key)
+            if not session or generation!=session.get("reconfigure_generation"): continue
+            if error:
+                session["last_status"]=f"参数设置失败: {error}"
+                if key==self.active_session_key: messagebox.showerror("参数设置失败",str(error))
+            else:
+                session["last_status"]=""
+                if key==self.active_session_key: self.show_actual_settings(actual)
+            self.update_session_ui(); self.refresh_session_tabs()
 
     def reader(self,key,session):
         while not session["stop_event"].is_set() and session["serial"].is_open:
             try:
                 data=session["serial"].read()
-                if data: self.rx_queue.put((key,data))
+                # 在读取线程中记录真实到达时间。非活动串口的数据可能在 UI
+                # 队列中短暂积压，不能用稍后的界面处理时间判断分包超时。
+                if data: self.rx_queue.put((key,data,time.monotonic(),datetime.now()))
             except Exception as e:
                 self.rx_queue.put((key,e)); break
 
     def poll_rx(self):
+        self.poll_reconfigure_results()
+        started=time.perf_counter(); active_changed=False
         try:
             while True:
-                key,item=self.rx_queue.get_nowait(); session=self.sessions.get(key)
+                if time.perf_counter()-started>=RX_UI_TIME_BUDGET: break
+                queued=self.rx_queue.get_nowait()
+                key,item=queued[0],queued[1]
+                received_tick=queued[2] if len(queued)>2 else time.monotonic()
+                received_at=queued[3] if len(queued)>3 else datetime.now()
+                session=self.sessions.get(key)
                 if not session: continue
                 if isinstance(item,Exception):
                     record=(datetime.now(),"错误",str(item).encode("utf-8",errors="replace"),"error",True)
@@ -1282,25 +1324,32 @@ class App(tk.Tk):
                         self.insert_traffic_record(record); self.update_session_ui()
                     self.refresh_session_tabs(); continue
                 session["rx_count"]+=len(item)
-                now=time.monotonic(); last=session.get("last_rx_at")
+                now=received_tick; last=session.get("last_rx_at")
                 try: packet_timeout=max(1,min(5000,int(session.get("settings",{}).get("timestamp_timeout","40"))))
                 except (TypeError,ValueError): packet_timeout=40
                 new_packet=last is None or (now-last)*1000>=packet_timeout
                 session["last_rx_at"]=now
-                record=(datetime.now(),"收←◆",bytes(item),"rx",new_packet)
-                session["history"].append(record)
+                record=(received_at,"收←◆",bytes(item),"rx",new_packet)
+                if new_packet or not session["history"] or session["history"][-1][3]!="rx":
+                    session["history"].append(record)
+                else:
+                    previous=session["history"][-1]
+                    session["history"][-1]=(previous[0],previous[1],previous[2]+bytes(item),previous[3],True)
                 agent_buffer=session.setdefault("agent_rx_buffer",[])
                 if new_packet or not agent_buffer:
                     agent_buffer.append({"time":record[0],"data":bytearray(item)})
                 else:
                     agent_buffer[-1]["data"].extend(item)
                 if len(agent_buffer)>1000: del agent_buffer[:-1000]
-                if len(session["history"])>10000: session["history"]=session["history"][-10000:]
+                if len(session["history"])>MAX_TRAFFIC_RECORDS: del session["history"][:-MAX_TRAFFIC_RECORDS]
                 if key==self.active_session_key:
                     self.traffic_history=session["history"]; self.rx_count=session["rx_count"]
-                    self.insert_traffic_record(record); self.update_counter()
+                    self.insert_traffic_record(record,autoscroll=False); active_changed=True
         except queue.Empty: pass
-        self.poll_job=self.after(60,self.poll_rx)
+        if active_changed:
+            self.update_counter()
+            if self.autoscroll.get(): self.recv.see("end")
+        self.poll_job=self.after(5 if not self.rx_queue.empty() else 25,self.poll_rx)
 
     def bytes_from_text(self,text,is_hex):
         if is_hex:
@@ -1358,7 +1407,6 @@ class App(tk.Tk):
             # Every explicit/timed/quick send is a separate traffic record.  Log
             # before touching the serial port so a click is still visible when
             # the port is closed, busy, or the driver reports a write failure.
-            self.recv.update_idletasks()
             sent=session["serial"].write(data); session["tx_count"]+=sent; self.tx_count=session["tx_count"]
             self.update_counter(); self.status.set(f"{session['key']} 已发送 {sent} 字节")
         except Exception as e: messagebox.showerror("发送失败",str(e)); self.timer_on.set(False)
@@ -1374,7 +1422,7 @@ class App(tk.Tk):
 
     def append_traffic_data(self,direction,data,tag,show_timestamp=True):
         self.traffic_history.append((datetime.now(),direction,bytes(data),tag,show_timestamp))
-        if len(self.traffic_history)>10000: del self.traffic_history[:-10000]
+        if len(self.traffic_history)>MAX_TRAFFIC_RECORDS: del self.traffic_history[:-MAX_TRAFFIC_RECORDS]
         self.insert_traffic_record(self.traffic_history[-1])
 
     def timestamp_timeout_ms(self):
@@ -1406,20 +1454,60 @@ class App(tk.Tk):
         if not self.rx_pending: return
         self.rx_pending.clear(); self.rx_pending_started=None
 
-    def insert_traffic_record(self,record):
+    def insert_traffic_record(self,record,autoscroll=True,trim=True):
         if len(record)==5: when,direction,data,tag,record_timestamp=record
         else: when,direction,data,tag=record; record_timestamp=True
         content=" ".join(f"{b:02X}" for b in data) if self.hex_recv.get() else data.decode(self.encoding.get(),errors="replace").rstrip("\r\n")
+        # 关闭时间戳时使用纯数据流显示：不增加时间、方向标记或强制换行。
+        # HEX 模式保留字节间空格，但不增加换行。
+        if not self.timestamp.get():
+            separator=""
+            if self.hex_recv.get() and content:
+                try:
+                    separator="" if self.recv.index("end-1c")=="1.0" else " "
+                except tk.TclError:
+                    separator=" "
+            self.recv.insert("end",f"{separator}{content}",tag)
+            if autoscroll and self.autoscroll.get(): self.recv.see("end")
+            if trim: self.trim_traffic_display()
+            return
         show_meta=self.timestamp.get() and record_timestamp
         stamp=when.strftime("[%H:%M:%S.%f]")[:-4]+"]" if show_meta else ""
         prefix=direction if show_meta else ""
+        # 同一超时包的后续驱动分片不产生新时间戳，也不另起一行。
+        if not record_timestamp:
+            try:
+                if self.recv.get("end-2c","end-1c")=="\n": self.recv.delete("end-2c","end-1c")
+            except tk.TclError:
+                pass
+            separator=" " if self.hex_recv.get() and content else ""
+            self.recv.insert("end",f"{separator}{content}\n",tag)
+            if autoscroll and self.autoscroll.get(): self.recv.see("end")
+            if trim: self.trim_traffic_display()
+            return
         for line in content.splitlines() or [""]:
             self.recv.insert("end",f"{stamp}{prefix}{line}\n",tag)
-        if self.autoscroll.get(): self.recv.see("end")
+        if autoscroll and self.autoscroll.get(): self.recv.see("end")
+        if trim: self.trim_traffic_display()
+
+    def trim_traffic_display(self):
+        """分批裁剪界面中的旧行，避免 Text 控件长期运行后持续变慢。"""
+        self.display_trim_counter+=1
+        if self.display_trim_counter<200: return
+        self.display_trim_counter=0
+        try:
+            lines=int(self.recv.index("end-1c").split(".")[0])
+            if lines>MAX_TRAFFIC_RECORDS+500:
+                self.recv.delete("1.0",f"{lines-MAX_TRAFFIC_RECORDS}.0")
+        except (tk.TclError,ValueError):
+            pass
 
     def render_traffic_history(self):
         self.recv.delete("1.0","end")
-        for record in self.traffic_history: self.insert_traffic_record(record)
+        self.display_trim_counter=0
+        for record in self.traffic_history[-VISIBLE_TRAFFIC_RECORDS:]:
+            self.insert_traffic_record(record,autoscroll=False,trim=False)
+        if self.autoscroll.get(): self.recv.see("end")
 
     def clear_traffic(self):
         if self.rx_flush_job: self.after_cancel(self.rx_flush_job); self.rx_flush_job=None

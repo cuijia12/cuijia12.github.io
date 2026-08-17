@@ -245,8 +245,10 @@ class DownloadWindow(ttk.Frame):
         self.config_data, self.save_callback = config, save_config
         self.stop_event = threading.Event(); self.worker = None; self.serial = None
         self.excluded_files = {os.path.normcase(path) for path in config.get("t5l_excluded_files", [])}
-        self.folder = tk.StringVar(value=config.get("t5l_project", "")); self.port = tk.StringVar()
-        self.baud = tk.StringVar(value="115200")
+        self.folder = tk.StringVar(value=config.get("t5l_project", ""))
+        saved_port = config.get("t5l_download_port", "")
+        self.port = tk.StringVar(value=saved_port)
+        self.baud = tk.StringVar(value=str(config.get("t5l_download_baud", "115200")))
         quick_saved = config.get("t5l_quick_select", {})
         self.quick_select = {
             "13": tk.BooleanVar(value=quick_saved.get("13", True)),
@@ -255,7 +257,9 @@ class DownloadWindow(ttk.Frame):
             "t5l51": tk.BooleanVar(value=quick_saved.get("t5l51", True)),
         }
         self.download_status = tk.StringVar(value="T5L 在线下载")
-        self.make_ui(); self.refresh_ports(sync_shared=True); self.scan()
+        self.make_ui(); self.refresh_ports(sync_shared=not bool(saved_port)); self.scan()
+        # 首次打开下载页也立即落盘，确保自动匹配后的有效端口可在重启后恢复。
+        self.remember_download_settings()
 
     def make_ui(self):
         ttk.Label(self, textvariable=self.download_status, font=("Segoe UI Variable Display", 13, "bold")).pack(fill="x", padx=12, pady=(10, 0))
@@ -367,15 +371,25 @@ class DownloadWindow(ttk.Frame):
     def shared_port_selected(self, _event=None):
         # T5L 端口仍独立选择；恰好选到串口助手当前端口时才继承其波特率。
         self.sync_baud_if_same_port(prefer_shared=True)
+        self.remember_download_settings()
 
     def shared_baud_selected(self, _event=None):
         # 用户在 T5L 侧修改同一端口的波特率时，反向更新串口助手。
         self.sync_baud_if_same_port(prefer_shared=False)
+        self.remember_download_settings()
+
+    def remember_download_settings(self):
+        """立即保存 T5L 独立串口和波特率，供下次启动恢复。"""
+        self.config_data["t5l_download_port"] = self.port.get()
+        self.config_data["t5l_download_baud"] = self.baud.get()
+        self.save_callback()
 
     def sync_baud_from_serial(self, port, baud):
         """串口助手侧变更时，只更新选择了同一端口的 T5L 波特率。"""
         if self.port_number(self.port.get()) == self.port_number(port):
-            self.baud.set(str(baud))
+            if self.baud.get() != str(baud):
+                self.baud.set(str(baud))
+                self.remember_download_settings()
             return True
         return False
     def scan(self):
