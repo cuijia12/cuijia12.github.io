@@ -285,6 +285,12 @@ class DownloadWindow(ttk.Frame):
         self.tree.bind("<Delete>", lambda _event: self.delete_selected())
         self.tree.bind("<<TreeviewSelect>>", self.enforce_quick_selection, add="+")
         self.tree.bind("<Button-3>", self.show_file_context_menu)
+        self.tree.bind("<ButtonPress-1>", self.begin_file_drag_selection, add="+")
+        self.tree.bind("<B1-Motion>", self.update_file_drag_selection, add="+")
+        self.tree.bind("<ButtonRelease-1>", self.end_file_drag_selection, add="+")
+        self.tree.bind("<Control-a>", self.select_all_files)
+        self.file_drag_anchor = None
+        self.file_drag_active = False
         ttk.Label(self, text="提示：选中文件可只下载选中项；未选中时下载全部。屏幕内核须支持 0x00AA 外部 Flash 更新协议。").pack(fill="x", padx=12, pady=(6, 0))
         controls = ttk.LabelFrame(self, text=" 下载设置 ", padding=10); controls.pack(fill="x", padx=12, pady=10)
         ttk.Label(controls, text="共用串口").pack(side="left"); self.port_box = ttk.Combobox(controls, textvariable=self.port, state="readonly", width=30); self.port_box.pack(side="left", padx=6)
@@ -395,12 +401,26 @@ class DownloadWindow(ttk.Frame):
     def scan(self):
         self.remember_folder()
         scanned = scan_files(self.folder.get())
+        # 快速选择必须反映当前目录实际存在的文件。切换到不包含对应
+        # 文件的目录时立即取消勾选，避免空列表仍显示为已选择。
+        available_keys = {self.file_quick_key(fid, path) for fid, path, _size in scanned}
+        quick_changed = False
+        for key, var in self.quick_select.items():
+            if key not in available_keys and var.get():
+                var.set(False)
+                quick_changed = True
+        if quick_changed:
+            self.config_data["t5l_quick_select"] = {
+                key: var.get() for key, var in self.quick_select.items()
+            }
         # 快速选择控制的文件不使用永久排除；兼容清理旧配置中的特殊文件记录。
         for fid, path, _size in scanned:
             key = self.file_quick_key(fid, path)
             if key: self.excluded_files.discard(os.path.normcase(path))
         self.files = [item for item in scanned if os.path.normcase(item[1]) not in self.excluded_files]
         self.config_data["t5l_excluded_files"] = sorted(self.excluded_files)
+        if quick_changed:
+            self.save_callback()
         self.show_files()
     def remember_folder(self):
         path = self.folder.get().strip()
@@ -500,6 +520,43 @@ class DownloadWindow(ttk.Frame):
         try: menu.tk_popup(event.x_root, event.y_root)
         finally: menu.grab_release()
         return "break"
+    def select_all_files(self, _event=None):
+        self.tree.selection_set(self.tree.get_children())
+        return "break"
+    def begin_file_drag_selection(self, event):
+        """按住左键拖过多行时，连续选中范围内的文件。"""
+        row = self.tree.identify_row(event.y)
+        if not row:
+            self.file_drag_anchor = None; self.file_drag_active = False
+            return None
+        previous_anchor = self.file_drag_anchor
+        self.file_drag_active = True
+        if (event.state & 0x0001) and previous_anchor:
+            children = list(self.tree.get_children())
+            if previous_anchor in children and row in children:
+                first, last = children.index(previous_anchor), children.index(row)
+                start, end = sorted((first, last))
+                self.tree.selection_set(children[start:end + 1]); self.tree.focus(row)
+                return "break"
+        self.file_drag_anchor = row
+        # Ctrl 点击继续使用 Treeview 原生的增减选择。
+        if not (event.state & 0x0004):
+            self.tree.selection_set(row); self.tree.focus(row)
+            return "break"
+        return None
+    def update_file_drag_selection(self, event):
+        if not self.file_drag_active or not self.file_drag_anchor: return None
+        row = self.tree.identify_row(event.y)
+        children = list(self.tree.get_children())
+        if not row or row not in children or self.file_drag_anchor not in children: return "break"
+        first, last = children.index(self.file_drag_anchor), children.index(row)
+        start, end = sorted((first, last))
+        self.tree.selection_set(children[start:end + 1])
+        self.tree.focus(row); self.tree.see(row)
+        return "break"
+    def end_file_drag_selection(self, _event=None):
+        self.file_drag_active = False
+        return None
     def remember_list_state(self):
         self.config_data["t5l_excluded_files"] = sorted(self.excluded_files)
         self.save_callback()
