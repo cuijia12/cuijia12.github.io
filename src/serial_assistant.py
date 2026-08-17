@@ -287,6 +287,8 @@ class App(tk.Tk):
         self.cycle_job = None
         self.cycle_index = 0
         self.send_save_job = None
+        self.timer_generation = 0
+        self.loading_session = False
         self.poll_job = None
         self.config_data = self.load_config()
         saved_geometry=self.config_data.get("window_geometry","")
@@ -540,7 +542,8 @@ class App(tk.Tk):
                 self, WindowsSerial, list_port_details, self.config_data, self.save_config,
                 shared_settings=lambda: (self.port.get(), self.baud.get()),
                 acquire_serial=self.acquire_t5l_serial,
-                release_serial=self.release_t5l_serial)
+                release_serial=self.release_t5l_serial,
+                sync_shared_baud=self.sync_baud_from_t5l)
         if not getattr(self, "serial_page_layout", None):
             self.serial_page_layout=[]
             for widget in self.winfo_children():
@@ -560,6 +563,30 @@ class App(tk.Tk):
             if not widget.winfo_manager(): widget.pack(**layout)
         self.serial_mode_btn.configure(font=("Segoe UI Variable Text",10,"bold"))
         self.t5l_mode_btn.configure(font=("Segoe UI Variable Text",10))
+
+    def sync_t5l_baud_from_serial(self, port=None, baud=None):
+        """同一 COM 口时，把串口助手波特率同步到已创建的 T5L 页面。"""
+        window=getattr(self,"t5l_window",None)
+        if window:
+            window.sync_baud_from_serial(port or self.port.get(),baud or self.baud.get())
+
+    def sync_baud_from_t5l(self, port, baud):
+        """T5L 修改同一端口波特率时，更新对应串口会话及已打开句柄。"""
+        key=port_number(port)
+        if key!=port_number(self.port.get()): return False
+        session=self.sessions.get(key)
+        self.baud.set(str(baud))
+        if session:
+            session["settings"]["baud"]=str(baud)
+            if session["serial"].is_open:
+                try:
+                    actual=session["serial"].configure(baud,self.data_bits.get(),self.parity.get(),self.stop_bits.get())
+                    self.show_actual_settings(actual)
+                except Exception as error:
+                    messagebox.showerror("波特率同步失败",str(error))
+                    return False
+        self.save_config()
+        return True
 
     def acquire_t5l_serial(self,requested_port=None):
         """只把当前标签的串口互斥切换给 T5L 下载，其他串口继续工作。"""
@@ -674,23 +701,47 @@ class App(tk.Tk):
                  "数据位":["5","6","7","8"],"停止位":["1","1.5","2"],"校验位":["无","奇","偶","标记","空格"],"流控制":["无","RTS/CTS","XON/XOFF"]}
         for row,label in enumerate(("端口","波特率","数据位","停止位","校验位","流控制")):
             ttk.Label(panel,text=label,style="Card.TLabel").grid(row=row,column=0,padx=(0,12),pady=5,sticky="w")
-            ttk.Combobox(panel,textvariable=values[label],values=choices[label],width=22,state="normal" if label=="波特率" else "readonly").grid(row=row,column=1,pady=5)
+            box=ttk.Combobox(panel,textvariable=values[label],values=choices[label],width=22,state="normal" if label=="波特率" else "readonly")
+            box.grid(row=row,column=1,pady=5)
+            if label=="端口":
+                box.bind("<<ComboboxSelected>>",lambda _event:self.load_serial_dialog_profile(values))
         buttons=ttk.Frame(win); buttons.pack(fill="x",padx=14,pady=(0,14))
         ttk.Button(buttons,text="取消",command=win.destroy).pack(side="right",padx=(6,0))
         ttk.Button(buttons,text="确定",style="Primary.TButton",command=lambda:self.apply_serial_dialog(win,values)).pack(side="right")
         win.update_idletasks(); x=self.winfo_rootx()+(self.winfo_width()-win.winfo_width())//2; y=self.winfo_rooty()+(self.winfo_height()-win.winfo_height())//2
         win.geometry(f"+{max(0,x)}+{max(0,y)}")
 
-    def apply_serial_dialog(self,win,values):
-        old_key=self.active_session_key; self.save_active_session_state()
-        self.port.set(values["端口"].get()); self.baud.set(values["波特率"].get()); self.data_bits.set(values["数据位"].get())
-        self.stop_bits.set(values["停止位"].get()); self.parity.set(values["校验位"].get()); self.flow_control.set(values["流控制"].get())
-        win.destroy()
-        new_key=port_number(self.port.get())
-        if new_key!=old_key:
-            self.ensure_serial_session(self.port.get(),self.current_serial_settings())
+    def load_serial_dialog_profile(self,values):
+        """在设置窗口选择 COM 口时，立即显示该端口自己的已保存参数。"""
+        key=port_number(values["端口"].get())
+        session=self.sessions.get(key)
+        if session:
+            settings=session.get("settings",{})
         else:
-            self.serial_parameter_changed("参数")
+            # 尚未创建标签的串口使用标准默认值，不复制其他 COM 口的参数。
+            settings={"baud":"115200","data_bits":"8","stop_bits":"1","parity":"无","flow_control":"无"}
+        for label,name in (("波特率","baud"),("数据位","data_bits"),("停止位","stop_bits"),
+                           ("校验位","parity"),("流控制","flow_control")):
+            values[label].set(str(settings.get(name,values[label].get())))
+
+    def apply_serial_dialog(self,win,values):
+        self.save_active_session_state()
+        requested={"port":values["端口"].get(),"baud":values["波特率"].get(),
+                   "data_bits":values["数据位"].get(),"stop_bits":values["停止位"].get(),
+                   "parity":values["校验位"].get(),"flow_control":values["流控制"].get()}
+        new_key=port_number(requested["port"])
+        session=self.sessions.get(new_key)
+        if not session:
+            session=self.create_serial_session(new_key,requested["port"],requested)
+        if not session:
+            messagebox.showwarning("串口设置","请选择有效串口",parent=win); return
+        # 只覆盖目标串口的线路参数，保留它自己的收发勾选、发送内容等工作区配置。
+        session["settings"].update(requested)
+        session["label"]=requested["port"]
+        self.switch_serial_session(new_key,save_current=False)
+        win.destroy()
+        # 已打开时立即重新配置驱动；关闭时只保存，待下次打开应用。
+        self.serial_parameter_changed("参数")
         self.save_config()
 
     def create_checkmark_style(self,style):
@@ -776,6 +827,7 @@ class App(tk.Tk):
     def on_send_text_modified(self,_event=None):
         if not self.send_text.edit_modified(): return
         self.send_text.edit_modified(False)
+        if self.loading_session: return
         if self.send_save_job: self.after_cancel(self.send_save_job)
         self.send_save_job=self.after(500,self.save_config)
 
@@ -808,12 +860,24 @@ class App(tk.Tk):
         except OSError: pass
 
     def current_serial_settings(self):
-        return {"port":self.port.get(),"baud":self.baud.get(),"data_bits":self.data_bits.get(),
-                "parity":self.parity.get(),"stop_bits":self.stop_bits.get(),"flow_control":self.flow_control.get()}
+        settings={"port":self.port.get(),"baud":self.baud.get(),"data_bits":self.data_bits.get(),
+                  "parity":self.parity.get(),"stop_bits":self.stop_bits.get(),"flow_control":self.flow_control.get(),
+                  "hex_recv":self.hex_recv.get(),"timestamp":self.timestamp.get(),
+                  "timestamp_timeout":self.timestamp_timeout.get(),"autoscroll":self.autoscroll.get(),
+                  "hex_send":self.hex_send.get(),"newline":self.newline.get(),
+                  "timer_on":self.timer_on.get(),"interval":self.interval.get(),
+                  "checksum":self.checksum.get(),"checksum_start":self.checksum_start.get(),
+                  "checksum_end":self.checksum_end.get()}
+        if hasattr(self,"send_text"): settings["send_text"]=self.send_text.get("1.0","end-1c")
+        return settings
 
     def session_config(self,session):
         settings=dict(session.get("settings",{}))
         settings["port"]=session.get("label",session["key"])
+        # T5L 临时占用期间句柄虽然已关闭，但应保存占用前的真实开关状态。
+        settings["is_open"]=(self.t5l_restore_open
+                             if self.t5l_active and session["key"]==self.t5l_restore_session
+                             else session["serial"].is_open)
         return settings
 
     def save_active_session_state(self):
@@ -827,7 +891,14 @@ class App(tk.Tk):
         key=port_number(key)
         if not re.fullmatch(r"COM\d+",key,re.IGNORECASE): return None
         if key in self.sessions: return self.sessions[key]
-        base={"port":label or key,"baud":"115200","data_bits":"8","parity":"无","stop_bits":"1","flow_control":"无"}
+        c=self.config_data
+        base={"port":label or key,"baud":"115200","data_bits":"8","parity":"无","stop_bits":"1","flow_control":"无",
+              "hex_recv":c.get("hex_recv",False),"timestamp":c.get("timestamp",False),
+              "timestamp_timeout":c.get("timestamp_timeout","40"),"autoscroll":c.get("autoscroll",True),
+              "hex_send":c.get("hex_send",False),"newline":c.get("newline",False),
+              "timer_on":False,"interval":c.get("interval","1000"),
+              "checksum":c.get("checksum","None"),"checksum_start":c.get("checksum_start","第1字节"),
+              "checksum_end":c.get("checksum_end","末尾"),"send_text":c.get("send_text","")}
         if settings: base.update({k:v for k,v in settings.items() if k in base and v not in (None,"")})
         session={"key":key,"label":label or base["port"] or key,"serial":WindowsSerial(),
                  "stop_event":threading.Event(),"settings":base,"rx_count":0,"tx_count":0,
@@ -844,15 +915,24 @@ class App(tk.Tk):
 
     def restore_serial_sessions(self):
         saved=self.config_data.get("serial_sessions",[])
+        restore_open=[]
         if isinstance(saved,list):
             for item in saved:
                 if not isinstance(item,dict): continue
                 key=port_number(item.get("port",""))
-                if re.fullmatch(r"COM\d+",key,re.IGNORECASE): self.create_serial_session(key,item.get("port",key),item)
+                if re.fullmatch(r"COM\d+",key,re.IGNORECASE):
+                    self.create_serial_session(key,item.get("port",key),item)
+                    if item.get("is_open",False): restore_open.append(key)
         active=port_number(self.config_data.get("active_serial_port",""))
         if active in self.sessions: self.switch_serial_session(active)
         elif self.sessions: self.switch_serial_session(next(iter(self.sessions)))
         else: self.refresh_session_tabs(); self.update_session_ui()
+        # 全部标签与参数恢复完成后，再逐一恢复上次处于打开状态的串口。
+        for key in restore_open:
+            if key not in self.sessions: continue
+            self.switch_serial_session(key)
+            if not self.sessions[key]["serial"].is_open: self.toggle_port()
+        if active in self.sessions: self.switch_serial_session(active)
 
     def new_serial_session(self):
         self.save_active_session_state()
@@ -862,21 +942,35 @@ class App(tk.Tk):
         if not candidate[0]:
             messagebox.showinfo("新增串口","没有可新增的串口。已有串口请直接点击上方标签切换。")
             return
-        self.create_serial_session(candidate[0],candidate[1]); self.switch_serial_session(candidate[0]); self.save_config()
+        self.create_serial_session(candidate[0],candidate[1],self.current_serial_settings()); self.switch_serial_session(candidate[0]); self.save_config()
 
     def switch_serial_session(self,key,save_current=True):
         if key not in self.sessions: return
         if save_current: self.save_active_session_state()
+        # 使旧标签尚未执行的定时发送回调失效。
+        self.timer_generation+=1
         session=self.sessions[key]; self.active_session_key=key
         self.serial=session["serial"]; self.stop_event=session["stop_event"]
         self.rx_count=session["rx_count"]; self.tx_count=session["tx_count"]
         self.traffic_history=session["history"]
         settings=session["settings"]
+        self.loading_session=True
         self.port.set(session["label"])
         for var,name in ((self.baud,"baud"),(self.data_bits,"data_bits"),(self.parity,"parity"),
-                         (self.stop_bits,"stop_bits"),(self.flow_control,"flow_control")):
+                         (self.stop_bits,"stop_bits"),(self.flow_control,"flow_control"),
+                         (self.timestamp_timeout,"timestamp_timeout"),(self.interval,"interval"),
+                         (self.checksum,"checksum"),(self.checksum_start,"checksum_start"),(self.checksum_end,"checksum_end")):
             var.set(settings.get(name,var.get()))
+        for var,name in ((self.hex_recv,"hex_recv"),(self.timestamp,"timestamp"),(self.autoscroll,"autoscroll"),
+                         (self.hex_send,"hex_send"),(self.newline,"newline"),(self.timer_on,"timer_on")):
+            var.set(bool(settings.get(name,var.get())))
+        self.send_text.delete("1.0","end")
+        self.send_text.insert("1.0",settings.get("send_text",""))
+        self.send_text.edit_modified(False)
+        self.loading_session=False
         self.flush_rx_pending(); self.render_traffic_history(); self.update_counter(); self.update_session_ui(); self.refresh_session_tabs()
+        self.sync_t5l_baud_from_serial(session["key"],self.baud.get())
+        if self.timer_on.get(): self.timer_changed()
 
     def close_serial_session(self,key,ask=True):
         session=self.sessions.get(key)
@@ -977,7 +1071,7 @@ class App(tk.Tk):
             threading.Thread(target=self.reader,args=(selected,session),daemon=True).start()
             session["last_status"]=""; self.update_session_ui(); self.refresh_session_tabs(); self.save_config()
         except Exception as e:
-            session["last_status"]=f"打开失败: {e}"; self.update_session_ui(); self.refresh_session_tabs(); messagebox.showerror("打开失败",str(e))
+            session["last_status"]=f"打开失败: {e}"; self.update_session_ui(); self.refresh_session_tabs(); self.save_config(); messagebox.showerror("打开失败",str(e))
 
     def show_actual_settings(self,actual=None):
         actual=actual or self.serial.get_settings()
@@ -995,6 +1089,8 @@ class App(tk.Tk):
         session=self.sessions.get(self.active_session_key)
         if not session: return
         session["settings"]=self.current_serial_settings()
+        if name in ("波特率","参数"):
+            self.sync_t5l_baud_from_serial(session["key"],self.baud.get())
         if not session["serial"].is_open: self.save_config(); return
         try:
             actual=session["serial"].configure(self.baud.get(),self.data_bits.get(),self.parity.get(),self.stop_bits.get())
@@ -1029,7 +1125,9 @@ class App(tk.Tk):
                     self.refresh_session_tabs(); continue
                 session["rx_count"]+=len(item)
                 now=time.monotonic(); last=session.get("last_rx_at")
-                new_packet=last is None or (now-last)*1000>=self.timestamp_timeout_ms()
+                try: packet_timeout=max(1,min(5000,int(session.get("settings",{}).get("timestamp_timeout","40"))))
+                except (TypeError,ValueError): packet_timeout=40
+                new_packet=last is None or (now-last)*1000>=packet_timeout
                 session["last_rx_at"]=now
                 record=(datetime.now(),"收←◆",bytes(item),"rx",new_packet)
                 session["history"].append(record)
@@ -1241,14 +1339,21 @@ class App(tk.Tk):
         self.cycle_job=self.after(delay,self.cycle_tick)
 
     def timer_changed(self):
-        if self.timer_on.get(): self.timer_tick()
+        if self.loading_session: return
+        self.save_active_session_state(); self.save_config()
+        self.timer_generation+=1
+        generation=self.timer_generation; key=self.active_session_key
+        if self.timer_on.get():
+            try: delay=max(10,int(self.interval.get()))
+            except ValueError: delay=1000; self.interval.set("1000")
+            self.after(delay,lambda:self.timer_tick(generation,key))
 
-    def timer_tick(self):
-        if not self.timer_on.get(): return
+    def timer_tick(self,generation=None,key=None):
+        if generation!=self.timer_generation or key!=self.active_session_key or not self.timer_on.get(): return
         self.send_current()
         try: delay=max(10,int(self.interval.get()))
         except ValueError: delay=1000; self.interval.set("1000")
-        self.after(delay,self.timer_tick)
+        self.after(delay,lambda:self.timer_tick(generation,key))
 
     def save_log(self):
         path=filedialog.asksaveasfilename(defaultextension=".txt",filetypes=[("文本文件","*.txt"),("所有文件","*.*")])
@@ -1263,7 +1368,10 @@ class App(tk.Tk):
     def update_counter(self): self.counter.set(f"接收: {self.rx_count} 字节    发送: {self.tx_count} 字节")
 
     def on_close(self):
-        self.timer_on.set(False); self.flush_rx_pending()
+        self.flush_rx_pending()
+        # 必须在关闭句柄前记录状态，否则所有会话都会被错误保存为“关闭”。
+        self.save_config()
+        self.timer_generation+=1; self.timer_on.set(False)
         for session in self.sessions.values():
             session["stop_event"].set(); session["serial"].close()
         self.t5l_restore_open = False
@@ -1271,7 +1379,6 @@ class App(tk.Tk):
         if self.poll_job:
             self.after_cancel(self.poll_job); self.poll_job=None
         if self.send_save_job: self.after_cancel(self.send_save_job); self.send_save_job=None
-        self.save_config()
         self.destroy()
 
 

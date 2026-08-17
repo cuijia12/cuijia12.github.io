@@ -20,6 +20,9 @@ https://cuijia12.github.io/
 - 顶部标签状态点：绿色表示已打开，红色表示已关闭，黄色表示正被 T5L 下载占用。
 - 点击标签切换当前串口，通讯记录、收发计数和参数跟随标签独立切换。
 - 点击标签右侧 `×` 可关闭串口并移除标签，不影响其他串口。
+- 每个 COM 口独立保存波特率、数据位、停止位、校验位、流控制和打开/关闭状态。
+- 每个 COM 口独立保存接收显示、时间戳、发送选项、校验范围和发送框内容。
+- 程序重启后自动恢复各串口标签及其上次开关状态。
 - T5L 下载只临时占用下载页面实际选择的串口，其他串口继续正常收发。
 
 ## T5L 在线下载
@@ -35,6 +38,8 @@ T5L 下载模块集成在串口助手主界面中。开始下载时，程序只�
 - “移出列表”只取消本次下载，不删除磁盘上的源文件；支持右键操作。
 - 自动记忆上次打开的工程目录、文件筛选状态和串口设置。
 - 快速选择支持 `13TouchFile.bin`、`14ShowFile.bin`、`22_Config.bin` 和 `T5L51.bin`；取消勾选会从列表移除，再次勾选可恢复。
+- 快捷选择对应文件不存在时会弹窗提示，并自动取消无效勾选。
+- T5L 端口保持独立选择；与串口助手选择同一 COM 口时，波特率自动双向同步。
 
 ### 下载流程
 
@@ -61,6 +66,8 @@ T5L 下载模块集成在串口助手主界面中。开始下载时，程序只�
 - 源码目录：[`src/`](./src/)
 - 开源许可证：[`MIT License`](./LICENSE)
 - 版本下载：[GitHub Releases](https://github.com/cuijia12/cuijia12.github.io/releases/tag/v1.1)
+- Windows 运行包：[SerialAssistant_v1.1.zip](https://github.com/cuijia12/cuijia12.github.io/releases/download/v1.1/SerialAssistant_v1.1.zip)
+- 完整源码包：[SerialAssistant_v1.1_Source.zip](https://github.com/cuijia12/cuijia12.github.io/releases/download/v1.1/SerialAssistant_v1.1_Source.zip)
 
 源码使用 Python 3 和 Windows 原生串口 API 实现，可直接运行，也可使用 PyInstaller 打包。
 

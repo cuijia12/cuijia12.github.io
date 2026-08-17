@@ -232,13 +232,15 @@ class Downloader:
 
 class DownloadWindow(ttk.Frame):
     def __init__(self, master, serial_factory, port_details, config, save_config,
-                 shared_settings=None, acquire_serial=None, release_serial=None):
+                 shared_settings=None, acquire_serial=None, release_serial=None,
+                 sync_shared_baud=None):
         super().__init__(master)
         self.master_app = master
         self.serial_factory, self.port_details = serial_factory, port_details
         self.shared_settings = shared_settings
         self.acquire_serial = acquire_serial
         self.release_serial = release_serial
+        self.sync_shared_baud = sync_shared_baud
         self.serial_acquired = False
         self.config_data, self.save_callback = config, save_config
         self.stop_event = threading.Event(); self.worker = None; self.serial = None
@@ -253,7 +255,7 @@ class DownloadWindow(ttk.Frame):
             "t5l51": tk.BooleanVar(value=quick_saved.get("t5l51", True)),
         }
         self.download_status = tk.StringVar(value="T5L 在线下载")
-        self.make_ui(); self.refresh_ports(); self.scan()
+        self.make_ui(); self.refresh_ports(sync_shared=True); self.scan()
 
     def make_ui(self):
         ttk.Label(self, textvariable=self.download_status, font=("Segoe UI Variable Display", 13, "bold")).pack(fill="x", padx=12, pady=(10, 0))
@@ -271,7 +273,7 @@ class DownloadWindow(ttk.Frame):
         ttk.Label(quick, text="快速选择").pack(side="left", padx=(0, 12))
         for key, label in (("13", "13文件"), ("14", "14文件"), ("22", "22文件"), ("t5l51", "T5L51.bin")):
             ttk.Checkbutton(quick, text=label, variable=self.quick_select[key],
-                            command=self.quick_selection_changed).pack(side="left", padx=(0, 28))
+                            command=lambda selected_key=key:self.quick_selection_changed(selected_key)).pack(side="left", padx=(0, 28))
         self.tree = ttk.Treeview(self, columns=("id", "size", "status"), show="tree headings", selectmode="extended")
         self.tree.heading("#0", text="文件名"); self.tree.heading("id", text="文件ID"); self.tree.heading("size", text="大小"); self.tree.heading("status", text="状态")
         self.tree.column("#0", width=380); self.tree.column("id", width=70, anchor="center"); self.tree.column("size", width=100, anchor="e"); self.tree.column("status", width=120)
@@ -282,8 +284,10 @@ class DownloadWindow(ttk.Frame):
         ttk.Label(self, text="提示：选中文件可只下载选中项；未选中时下载全部。屏幕内核须支持 0x00AA 外部 Flash 更新协议。").pack(fill="x", padx=12, pady=(6, 0))
         controls = ttk.LabelFrame(self, text=" 下载设置 ", padding=10); controls.pack(fill="x", padx=12, pady=10)
         ttk.Label(controls, text="共用串口").pack(side="left"); self.port_box = ttk.Combobox(controls, textvariable=self.port, state="readonly", width=30); self.port_box.pack(side="left", padx=6)
+        self.port_box.bind("<<ComboboxSelected>>", self.shared_port_selected)
         ttk.Button(controls, text="刷新", command=self.refresh_ports).pack(side="left")
-        ttk.Label(controls, text="波特率").pack(side="left", padx=(12, 3)); ttk.Combobox(controls, textvariable=self.baud, values=["9600", "115200", "921600"], width=10, state="readonly").pack(side="left")
+        ttk.Label(controls, text="波特率").pack(side="left", padx=(12, 3)); self.baud_box = ttk.Combobox(controls, textvariable=self.baud, values=["9600", "115200", "921600"], width=10, state="readonly"); self.baud_box.pack(side="left")
+        self.baud_box.bind("<<ComboboxSelected>>", self.shared_baud_selected)
         self.start_btn = ttk.Button(controls, text="开始下载", command=self.start); self.start_btn.pack(side="right")
         ttk.Button(controls, text="停止", command=self.stop_download).pack(side="right", padx=6)
         progress_row = ttk.Frame(self); progress_row.pack(fill="x", padx=12, pady=(0, 12))
@@ -329,14 +333,51 @@ class DownloadWindow(ttk.Frame):
         self.show_files()
         if invalid:
             messagebox.showwarning("无法添加部分文件", "文件名必须以 0～63 的文件 ID 开头，或命名为 T5L51.bin：\n\n" + "\n".join(invalid), parent=self)
-    def refresh_ports(self):
+    def refresh_ports(self,sync_shared=False):
         vals = [label for _, label in self.port_details()]; self.port_box["values"] = vals
         shared_port, shared_baud = self.shared_settings() if self.shared_settings else (self.port.get(), self.baud.get())
-        shared_no = re.match(r"\s*(COM\d+)", shared_port, re.I)
-        match = next((label for label in vals if shared_no and label.upper().startswith(shared_no.group(1).upper())), None)
+        # 首次创建时继承串口助手当前选择；之后刷新或再次进入页面时，
+        # T5L 保持自己的下拉选择，不跟随串口助手标签切换。
+        wanted = shared_port if sync_shared or not self.port.get() else self.port.get()
+        wanted_no = re.match(r"\s*(COM\d+)", wanted, re.I)
+        match = next((label for label in vals if wanted_no and label.upper().startswith(wanted_no.group(1).upper())), None)
         if match: self.port.set(match)
         elif vals and self.port.get() not in vals: self.port.set(vals[0])
-        if shared_baud: self.baud.set(str(shared_baud))
+        if sync_shared and shared_baud: self.baud.set(str(shared_baud))
+        self.sync_baud_if_same_port(prefer_shared=True)
+
+    @staticmethod
+    def port_number(value):
+        match = re.match(r"\s*(COM\d+)", value or "", re.I)
+        return match.group(1).upper() if match else ""
+
+    def sync_baud_if_same_port(self, prefer_shared=False):
+        """仅当两边选中同一个 COM 口时同步波特率。"""
+        if not self.shared_settings:
+            return False
+        shared_port, shared_baud = self.shared_settings()
+        if self.port_number(self.port.get()) != self.port_number(shared_port):
+            return False
+        if prefer_shared and shared_baud:
+            self.baud.set(str(shared_baud))
+        elif self.sync_shared_baud:
+            self.sync_shared_baud(self.port_number(self.port.get()), self.baud.get())
+        return True
+
+    def shared_port_selected(self, _event=None):
+        # T5L 端口仍独立选择；恰好选到串口助手当前端口时才继承其波特率。
+        self.sync_baud_if_same_port(prefer_shared=True)
+
+    def shared_baud_selected(self, _event=None):
+        # 用户在 T5L 侧修改同一端口的波特率时，反向更新串口助手。
+        self.sync_baud_if_same_port(prefer_shared=False)
+
+    def sync_baud_from_serial(self, port, baud):
+        """串口助手侧变更时，只更新选择了同一端口的 T5L 波特率。"""
+        if self.port_number(self.port.get()) == self.port_number(port):
+            self.baud.set(str(baud))
+            return True
+        return False
     def scan(self):
         self.remember_folder()
         scanned = scan_files(self.folder.get())
@@ -367,12 +408,25 @@ class DownloadWindow(ttk.Frame):
         if os.path.basename(path).lower() == "t5l51.bin": return "t5l51"
         if fid in (13, 14, 22): return str(fid)
         return None
-    def quick_selection_changed(self):
+    def quick_selection_changed(self, selected_key=None):
+        # 用户勾选快捷项时，先确认当前目录确实包含对应文件。
+        # 缺失时立即恢复为未勾选，避免界面看似已选但列表没有任何变化。
+        scanned = scan_files(self.folder.get())
+        available_keys = {self.file_quick_key(fid, path) for fid, path, _size in scanned}
+        if (selected_key and self.quick_select[selected_key].get()
+                and selected_key not in available_keys):
+            self.quick_select[selected_key].set(False)
+            labels = {"13":"13号文件", "14":"14号文件", "22":"22号文件", "t5l51":"T5L51.bin"}
+            folder = self.folder.get().strip() or "（尚未选择目录）"
+            messagebox.showwarning(
+                "快捷文件不存在",
+                f"当前选择的目录中没有找到 {labels[selected_key]}。\n\n目录：{folder}\n\n请更换目录或使用“选择文件”手动添加。",
+                parent=self)
         self.config_data["t5l_quick_select"] = {key: var.get() for key, var in self.quick_select.items()}
         # 特殊文件重新勾选时，从当前目录恢复到列表，并取消旧版留下的排除记录。
         known = {os.path.normcase(item[1]) for item in self.files}
         exclusions_changed = False
-        for item in scan_files(self.folder.get()):
+        for item in scanned:
             fid, path, _size = item; key = self.file_quick_key(fid, path)
             if key and self.quick_select[key].get():
                 normalized = os.path.normcase(path)
