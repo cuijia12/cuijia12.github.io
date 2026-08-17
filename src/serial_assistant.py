@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,8 @@ import time
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, simpledialog, ttk
-from t5l_download import DownloadWindow
+from agent_api import AgentAPIController, DEFAULT_PORT as AGENT_API_DEFAULT_PORT
+from t5l_download import DownloadWindow, file_id
 
 
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
@@ -43,7 +45,7 @@ nav a{color:#dbeaff;margin-right:18px;text-decoration:none}footer{padding:0 18px
 </style>
 </head>
 <body>
-<header><div><h1>串口助手</h1><p class="subtitle">多串口调试与 T5L 在线下载一体化工具</p><span class="badge">版本 v1.1 · Windows</span><nav><a href="#serial">串口调试</a><a href="#quick">快捷指令</a><a href="#t5l">T5L下载</a><a href="#faq">注意事项</a><a href="https://cuijia12.github.io/" target="_blank" rel="noopener">作者主页</a></nav></div></header>
+<header><div><h1>串口助手</h1><p class="subtitle">多串口调试与 T5L 在线下载一体化工具</p><span class="badge">版本 v1.1 · Windows</span><nav><a href="#serial">串口调试</a><a href="#quick">快捷指令</a><a href="#t5l">T5L下载</a><a href="#api">Agent API</a><a href="#faq">注意事项</a><a href="https://cuijia12.github.io/" target="_blank" rel="noopener">作者主页</a></nav></div></header>
 <main>
 <section class="card"><h2>快速开始</h2><ol><li>在“串口连接”区域选择端口和波特率，其他参数可在“串口设置”中调整。</li><li>点击“打开串口”，在数据发送区输入文本或 HEX 数据。</li><li>按需选择 HEX 发送、自动换行、校验算法及校验范围，然后点击“发送数据”。</li><li>发送和接收内容会实时显示在同一个通讯记录区域。</li></ol><p class="tip">发布版为单文件 EXE，可直接在 Windows 电脑运行，无需安装 Python 或 pyserial。</p></section>
 <div class="grid">
@@ -52,6 +54,7 @@ nav a{color:#dbeaff;margin-right:18px;text-decoration:none}footer{padding:0 18px
 </div>
 <section class="card" id="quick"><h2>快捷指令</h2><ul><li>共10页，每页30条，可保存300条指令。</li><li>每条指令可单独设置 HEX/字符模式、备注、延时和是否参与循环发送。</li><li>双击备注按钮可修改名称；支持导入 SSCOM INI 配置。</li><li>通过“快捷指令 → 显示快捷指令”可打开或关闭右侧区域，状态自动保存。</li></ul></section>
 <section class="card" id="t5l"><h2>T5L 在线下载</h2><ul><li>点击顶部“T5L 下载”在主窗口内切换，无需打开额外窗口。</li><li>下载只临时占用当前选中的串口标签，其他已打开串口继续正常收发。</li><li>下载结束后恢复被占用标签原来的串口开关状态和参数。</li><li>记忆上次 DWIN_SET 文件夹和下载列表。</li><li>支持选择目录、单独选择文件、移出下载列表；移出只影响本次下载列表，不删除源文件。</li><li>快速选择支持13文件、14文件、22文件和 <code>T5L51.bin</code>。</li><li>支持 T5L51 8051代码更新以及 ICL 下载前停止 DGUS 刷新的防卡死处理。</li></ul><p class="tip warn">下载过程中请保持供电和串口连接稳定。目标屏幕内核必须支持相应的在线更新协议。</p></section>
+<section class="card" id="api"><h2>Agent API</h2><ul><li>程序运行后在 <code>127.0.0.1:18765</code> 提供本机 HTTP JSON 接口。</li><li>支持状态查询、打开/关闭串口、HEX/字符发送与最新接收数据读取、启动/停止 T5L 下载。</li><li>接口与 GUI 共用串口会话，并使用 <code>config.json</code> 中的随机 Token 鉴权。</li><li>源码包中的 <code>agent_api.py</code> 可作为 Codex 和自动化脚本的命令行客户端。</li></ul></section>
 <section class="card"><h2>界面与数据保存</h2><ul><li>20种界面风格，分为明亮、深色、科技、护眼和经典五类。</li><li>窗口尺寸与位置、串口参数、发送内容、快捷指令、主题和工程路径都会自动保存。</li><li>配置保存在程序同目录的 <code>config.json</code>，移动 EXE 时可按需一同复制。</li></ul></section>
 <section class="card" id="faq"><h2>注意事项</h2><ul><li>本程序仅支持 Windows，串口层直接调用 Windows API。</li><li>HEX 输入可使用空格、逗号、分号、冒号或短横线分隔，必须保持每个字节为两位十六进制。</li><li>同一串口不能同时被其他串口软件占用。</li><li>若端口列表未更新，请点击“刷新”并检查 USB 串口驱动。</li></ul></section>
 <section class="card"><h2>作者信息</h2><p>微信号：<strong>c402306805</strong></p><p>个人网页：<a href="https://cuijia12.github.io/" target="_blank" rel="noopener">https://cuijia12.github.io/</a></p><p class="ok">感谢使用串口助手。</p></section>
@@ -291,6 +294,9 @@ class App(tk.Tk):
         self.loading_session = False
         self.poll_job = None
         self.config_data = self.load_config()
+        self.agent_api_token=self.config_data.get("agent_api_token") or secrets.token_hex(24)
+        self.agent_api_port=int(self.config_data.get("agent_api_port",AGENT_API_DEFAULT_PORT))
+        self.agent_api=None; self.agent_api_job=None
         saved_geometry=self.config_data.get("window_geometry","")
         if re.fullmatch(r"\d+x\d+[+-]\d+[+-]\d+",saved_geometry):
             m=re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)",saved_geometry)
@@ -306,6 +312,7 @@ class App(tk.Tk):
         self.refresh_ports()
         self.apply_config()
         self.poll_job=self.after(60, self.poll_rx)
+        self.start_agent_api()
         if self.config_data.get("window_state")=="zoomed": self.after(0,lambda:self.state("zoomed"))
 
     def load_config(self):
@@ -846,6 +853,7 @@ class App(tk.Tk):
                 "theme":self.theme_name.get(),"port":self.port.get(),"baud":self.baud.get(),"data_bits":self.data_bits.get(),"parity":self.parity.get(),"stop_bits":self.stop_bits.get(),"flow_control":self.flow_control.get(),
                 "interval":self.interval.get(),"encoding":self.encoding.get(),"checksum":self.checksum.get(),"checksum_start":self.checksum_start.get(),"checksum_end":self.checksum_end.get(),"hex_recv":self.hex_recv.get(),"hex_send":self.hex_send.get(),"timestamp":self.timestamp.get(),"newline":self.newline.get(),
                 "timestamp_timeout":self.timestamp_timeout.get(),
+                "agent_api_token":self.agent_api_token,"agent_api_port":self.agent_api_port,
                 "serial_sessions":[self.session_config(s) for s in self.sessions.values()],
                 "active_serial_port":self.active_session_key or "",
                 "send_text":self.send_text.get("1.0","end-1c"),
@@ -858,6 +866,156 @@ class App(tk.Tk):
             self.config_data.update(data)
             with open(CONFIG_FILE,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False,indent=2)
         except OSError: pass
+
+    def start_agent_api(self):
+        self.agent_api=AgentAPIController(self.agent_api_token,self.agent_api_port)
+        if self.agent_api.start():
+            self.config_data["agent_api_token"]=self.agent_api_token
+            self.config_data["agent_api_port"]=self.agent_api_port
+            self.save_config()
+            self.agent_api_job=self.after(50,self.poll_agent_api)
+        else:
+            self.status.set(f"Agent API 启动失败：{self.agent_api.error}")
+
+    def poll_agent_api(self):
+        if self.agent_api:
+            self.agent_api.process_pending(self.handle_agent_action)
+            self.agent_api_job=self.after(50,self.poll_agent_api)
+
+    def handle_agent_action(self,action,payload):
+        if action=="status": return self.agent_status()
+        if action=="serial.open": return self.agent_open_serial(payload)
+        if action=="serial.close": return self.agent_close_serial(payload)
+        if action=="serial.send": return self.agent_send_serial(payload)
+        if action=="serial.receive": return self.agent_receive_serial(payload)
+        if action=="t5l.download": return self.agent_start_t5l(payload)
+        if action=="t5l.stop": return self.agent_stop_t5l()
+        raise ValueError(f"未知 Agent 操作：{action}")
+
+    def agent_status(self):
+        sessions=[]
+        for key,session in self.sessions.items():
+            sessions.append({"port":key,"label":session.get("label",key),
+                             "open":bool(session["serial"].is_open),
+                             "active":key==self.active_session_key,
+                             "settings":dict(session.get("settings",{})),
+                             "rx_bytes":session.get("rx_count",0),"tx_bytes":session.get("tx_count",0)})
+        window=getattr(self,"t5l_window",None)
+        t5l={"running":bool(window and window.worker and window.worker.is_alive()),
+             "port":window.port.get() if window else "","baud":window.baud.get() if window else "",
+             "progress":int(float(window.progress["value"])) if window else 0,
+             "status":window.download_status.get() if window else "未启动"}
+        return {"version":APP_VERSION,"active_port":self.active_session_key or "",
+                "sessions":sessions,"t5l":t5l}
+
+    @staticmethod
+    def normalize_agent_parity(value):
+        text=str(value or "无").strip().upper()
+        mapping={"N":"无","NONE":"无","无":"无","O":"奇","ODD":"奇","奇":"奇",
+                 "E":"偶","EVEN":"偶","偶":"偶","M":"标记","MARK":"标记","标记":"标记",
+                 "S":"空格","SPACE":"空格","空格":"空格"}
+        if text not in mapping: raise ValueError(f"不支持的校验位：{value}")
+        return mapping[text]
+
+    def agent_open_serial(self,payload):
+        key=port_number(payload.get("port",""))
+        if not re.fullmatch(r"COM\d+",key,re.I): raise ValueError("port 必须是 COM 端口，例如 COM5")
+        baud=str(int(payload.get("baud",115200))); data_bits=str(payload.get("data_bits",payload.get("data-bits",8)))
+        stop_bits=str(payload.get("stop_bits",payload.get("stop-bits",1))); parity=self.normalize_agent_parity(payload.get("parity","无"))
+        if data_bits not in ("5","6","7","8"): raise ValueError("data_bits 必须为 5、6、7 或 8")
+        if stop_bits not in ("1","1.5","2"): raise ValueError("stop_bits 必须为 1、1.5 或 2")
+        label=next((label for port,label in list_port_details() if port.upper()==key.upper()),key)
+        session=self.sessions.get(key) or self.create_serial_session(key,label,{"baud":baud,"data_bits":data_bits,"stop_bits":stop_bits,"parity":parity})
+        if not session: raise RuntimeError("无法创建串口会话")
+        session["settings"].update({"port":label,"baud":baud,"data_bits":data_bits,"stop_bits":stop_bits,"parity":parity})
+        session["label"]=label; self.switch_serial_session(key)
+        if session["serial"].is_open:
+            actual=session["serial"].configure(baud,data_bits,parity,stop_bits)
+        else:
+            session["stop_event"].clear(); session["serial"].open(key,baud,data_bits,parity,stop_bits)
+            actual=session["serial"].get_settings()
+            threading.Thread(target=self.reader,args=(key,session),daemon=True).start()
+        session["last_status"]=""; self.update_session_ui(); self.refresh_session_tabs(); self.save_config()
+        return {"port":key,"open":True,"actual":actual}
+
+    def agent_close_serial(self,payload):
+        key=port_number(payload.get("port","")); session=self.sessions.get(key)
+        if not session: raise ValueError(f"串口标签不存在：{key or payload.get('port','')}")
+        if self.t5l_active and key==self.t5l_restore_session: raise RuntimeError("该串口正在执行 T5L 下载")
+        session["stop_event"].set(); session["serial"].close(); session["last_status"]=f"●  {key} 已关闭"
+        if key==self.active_session_key: self.update_session_ui()
+        self.refresh_session_tabs(); self.save_config()
+        return {"port":key,"open":False}
+
+    def agent_send_serial(self,payload):
+        key=port_number(payload.get("port","")); session=self.sessions.get(key)
+        if not session or not session["serial"].is_open: raise RuntimeError(f"串口未打开：{key}")
+        if self.t5l_active and key==self.t5l_restore_session: raise RuntimeError("该串口正在执行 T5L 下载")
+        self.switch_serial_session(key)
+        data=self.bytes_from_text(str(payload.get("data","")),bool(payload.get("hex",False)))
+        if not data: raise ValueError("发送数据不能为空")
+        checksum=str(payload.get("checksum","None"))
+        if checksum and checksum!="None": data=self.append_checksum(data,checksum)
+        self.append_traffic_data("发→◇",data,"tx"); sent=session["serial"].write(data)
+        session["tx_count"]+=sent; self.tx_count=session["tx_count"]; self.update_counter()
+        self.status.set(f"{key} 已发送 {sent} 字节"); self.save_config()
+        return {"port":key,"bytes":sent,"hex":" ".join(f"{byte:02X}" for byte in data)}
+
+    def agent_receive_serial(self,payload):
+        """返回指定串口为 Agent 保留的最新接收包，不影响 GUI 通讯记录。"""
+        key=port_number(payload.get("port","")); session=self.sessions.get(key)
+        if not session: raise ValueError(f"串口标签不存在：{key or payload.get('port','')}")
+        try: limit=max(1,min(200,int(payload.get("limit",20))))
+        except (TypeError,ValueError): raise ValueError("limit 必须是 1 到 200 的整数")
+        packets=session.get("agent_rx_buffer",[])[-limit:]
+        encoding=str(payload.get("encoding") or self.encoding.get() or "GBK")
+        result=[]
+        for packet in packets:
+            data=bytes(packet["data"])
+            try: decoded=data.decode(encoding,errors="replace")
+            except LookupError: raise ValueError(f"不支持的字符编码：{encoding}")
+            result.append({"time":packet["time"].isoformat(timespec="milliseconds"),
+                           "bytes":len(data),"hex":" ".join(f"{byte:02X}" for byte in data),
+                           "text":decoded})
+        if bool(payload.get("clear",False)): session["agent_rx_buffer"].clear()
+        return {"port":key,"count":len(result),"latest":result[-1] if result else None,
+                "packets":result,"cleared":bool(payload.get("clear",False))}
+
+    def agent_start_t5l(self,payload):
+        key=port_number(payload.get("port",""))
+        if not re.fullmatch(r"COM\d+",key,re.I): raise ValueError("port 必须是 COM 端口，例如 COM5")
+        self.open_t5l_download(); window=self.t5l_window
+        if window.worker and window.worker.is_alive(): raise RuntimeError("T5L 下载已在运行")
+        label=next((label for port,label in list_port_details() if port.upper()==key.upper()),key)
+        window.port.set(label); window.baud.set(str(int(payload.get("baud",115200))))
+        for var in window.quick_select.values(): var.set(True)
+        files=payload.get("files") or []
+        folder=str(payload.get("folder") or "").strip()
+        if files:
+            resolved=[]
+            for path in files:
+                full=os.path.abspath(os.path.join(folder,path) if folder and not os.path.isabs(path) else path)
+                if not os.path.isfile(full): raise FileNotFoundError(f"下载文件不存在：{full}")
+                fid=file_id(full)
+                if fid is None: raise ValueError(f"无法识别文件 ID：{os.path.basename(full)}")
+                resolved.append((fid,full,os.path.getsize(full)))
+            window.files=sorted(resolved,key=lambda item:(item[0],os.path.basename(item[1]).lower()))
+            if folder: window.folder.set(os.path.abspath(folder))
+            elif resolved: window.folder.set(os.path.dirname(resolved[0][1]))
+            window.show_files(); window.tree.selection_set([item[1] for item in window.files])
+        else:
+            if not folder or not os.path.isdir(folder): raise ValueError("请提供有效的 folder 或 files")
+            window.folder.set(os.path.abspath(folder)); window.scan()
+            if not window.files: raise RuntimeError("目录中没有可下载文件")
+            window.show_files(); window.tree.selection_set([item[1] for item in window.files])
+        window.worker=None; window.start()
+        if not window.worker or not window.worker.is_alive(): raise RuntimeError("T5L 下载未能启动")
+        return {"started":True,"port":key,"baud":window.baud.get(),"files":[os.path.basename(item[1]) for item in window.files]}
+
+    def agent_stop_t5l(self):
+        window=getattr(self,"t5l_window",None)
+        if not window or not window.worker or not window.worker.is_alive(): return {"running":False}
+        window.stop_download(); return {"running":True,"stopping":True}
 
     def current_serial_settings(self):
         settings={"port":self.port.get(),"baud":self.baud.get(),"data_bits":self.data_bits.get(),
@@ -902,7 +1060,7 @@ class App(tk.Tk):
         if settings: base.update({k:v for k,v in settings.items() if k in base and v not in (None,"")})
         session={"key":key,"label":label or base["port"] or key,"serial":WindowsSerial(),
                  "stop_event":threading.Event(),"settings":base,"rx_count":0,"tx_count":0,
-                 "history":[],"last_rx_at":None,"last_status":""}
+                 "history":[],"agent_rx_buffer":[],"last_rx_at":None,"last_status":""}
         self.sessions[key]=session
         self.refresh_session_tabs()
         return session
@@ -1131,6 +1289,12 @@ class App(tk.Tk):
                 session["last_rx_at"]=now
                 record=(datetime.now(),"收←◆",bytes(item),"rx",new_packet)
                 session["history"].append(record)
+                agent_buffer=session.setdefault("agent_rx_buffer",[])
+                if new_packet or not agent_buffer:
+                    agent_buffer.append({"time":record[0],"data":bytearray(item)})
+                else:
+                    agent_buffer[-1]["data"].extend(item)
+                if len(agent_buffer)>1000: del agent_buffer[:-1000]
                 if len(session["history"])>10000: session["history"]=session["history"][-10000:]
                 if key==self.active_session_key:
                     self.traffic_history=session["history"]; self.rx_count=session["rx_count"]
@@ -1371,6 +1535,9 @@ class App(tk.Tk):
         self.flush_rx_pending()
         # 必须在关闭句柄前记录状态，否则所有会话都会被错误保存为“关闭”。
         self.save_config()
+        if self.agent_api_job:
+            self.after_cancel(self.agent_api_job); self.agent_api_job=None
+        if self.agent_api: self.agent_api.stop()
         self.timer_generation+=1; self.timer_on.set(False)
         for session in self.sessions.values():
             session["stop_event"].set(); session["serial"].close()

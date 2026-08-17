@@ -6,6 +6,8 @@
 
 - `serial_assistant.py`：主程序、多路串口会话、串口收发、快捷指令及界面。
 - `t5l_download.py`：T5L 在线下载与 T5L51 更新模块。
+- `agent_api.py`：供 Codex、脚本及其他智能体调用的本机 HTTP API 与命令行客户端。
+- `AGENT_API.md`：接口路径、JSON 参数和调用示例。
 - `SerialAssistant.spec`：PyInstaller 单文件打包配置。
 - `version_info.txt`：Windows EXE 版本信息。
 - `run.bat`：Windows 源码启动脚本。
@@ -33,6 +35,10 @@ python serial_assistant.py
 ```
 
 也可以双击 `run.bat` 启动。
+
+## Agent API
+
+程序运行后默认监听 `127.0.0.1:18765`，支持状态查询、打开/关闭串口、发送数据、读取最新接收数据及 T5L 下载。Token 保存在程序同目录的 `config.json`。`POST /api/serial/receive` 可读取指定 COM 口最新的接收包（HEX、字符、字节数和时间），清空接口缓存不会影响界面通讯记录。完整说明见 [`AGENT_API.md`](./AGENT_API.md)。
 
 ## 打包 EXE
 
