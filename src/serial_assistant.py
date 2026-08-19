@@ -26,6 +26,11 @@ APP_VERSION = "1.1"
 MAX_TRAFFIC_RECORDS = 5000
 VISIBLE_TRAFFIC_RECORDS = 1000
 RX_UI_TIME_BUDGET = 0.010
+# 连续运行保护：不能让高频串口把 UI 队列、单个“未超时包”或 Text 控件无限撑大。
+RX_PENDING_MAX_BYTES = 1024 * 1024
+RX_UI_CHUNK_BYTES = 8192
+MAX_TRAFFIC_RECORD_BYTES = 8192
+MAX_DISPLAY_CHARS = 1200000
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 REFERENCE_INI = os.path.abspath(os.path.join(APP_DIR, "..", "sscom5.13", "sscom51.ini"))
 T5L_TOOL_DIR = os.path.abspath(os.path.join(APP_DIR, "..", "DGUS_V7649", "DGUS_V7649-6", "TOOL"))
@@ -298,6 +303,7 @@ class App(tk.Tk):
         self.cycle_job = None
         self.cycle_index = 0
         self.send_save_job = None
+        self._geom_save_job = None
         self.timer_generation = 0
         self.loading_session = False
         self.poll_job = None
@@ -310,9 +316,12 @@ class App(tk.Tk):
             m=re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)",saved_geometry)
             w=max(860,min(int(m.group(1)),screen_w)); h=max(560,min(int(m.group(2)),screen_h))
             x=max(0,min(int(m.group(3)),screen_w-w)); y=max(0,min(int(m.group(4)),screen_h-h))
-            self.geometry(f"{w}x{h}+{x}+{y}")
+            self._target_geometry=f"{w}x{h}+{x}+{y}"
         else:
-            self.geometry(f"{min(1240,screen_w-80)}x{min(760,screen_h-100)}+30+30")
+            self._target_geometry=f"{min(1240,screen_w-80)}x{min(760,screen_h-100)}+30+30"
+        # 窗口 withdraw 状态下 geometry() 只返回 1x1+位置，必须记录目标几何
+        # 供离屏首帧合成使用，否则保存的窗口尺寸会在启动时被覆盖成最小尺寸。
+        self.geometry(self._target_geometry)
         self.theme_name = tk.StringVar(value=self.config_data.get("theme", "现代浅色"))
         self.quick_panel_visible = tk.BooleanVar(value=self.config_data.get("quick_panel_visible", True))
         self._startup_complete=False
@@ -322,6 +331,8 @@ class App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.bind("<Unmap>",self.on_root_unmap,add="+")
         self.bind("<Map>",self.on_root_map,add="+")
+        # 窗口尺寸/位置每次调整后防抖保存，异常退出也能恢复上次大小。
+        self.bind("<Configure>", self.on_root_configure, add="+")
         self.create_ui()
         self.refresh_ports()
         self.apply_config()
@@ -332,7 +343,7 @@ class App(tk.Tk):
     def show_ready_window(self):
         """在首帧布局完成后显示窗口，消除启动时约 0.2 秒的黑框闪烁。"""
         self.update_idletasks()
-        target_geometry=self.geometry()
+        target_geometry=self._target_geometry
         match=re.match(r"(\d+x\d+)[+-]",target_geometry)
         size=match.group(1) if match else "1200x720"
         # 透明分层窗口在部分旧显卡上仍会留下黑色子控件；改在屏幕外进行
@@ -346,6 +357,19 @@ class App(tk.Tk):
         self.geometry(target_geometry)
         self.update_idletasks()
         self.after_idle(self.reveal_painted_window)
+
+    def on_root_configure(self, _event=None):
+        """窗口尺寸/位置变化后 500ms 防抖保存；启动布局和最小化期间不保存。"""
+        if not getattr(self, "_startup_complete", False): return
+        if self.state() in ("iconic", "withdrawn"): return
+        if self._geom_save_job: self.after_cancel(self._geom_save_job)
+        self._geom_save_job = self.after(500, self.save_window_geometry)
+
+    def save_window_geometry(self):
+        self._geom_save_job = None
+        if not getattr(self, "_startup_complete", False): return
+        if self.state() in ("iconic", "withdrawn"): return
+        self.save_config()
 
     def reveal_painted_window(self):
         self.deiconify()
@@ -953,6 +977,7 @@ class App(tk.Tk):
                 "t5l_quick_select":self.config_data.get("t5l_quick_select",{}),
                 "t5l_download_port":(self.t5l_window.port.get() if getattr(self,"t5l_window",None) else (self.config_data.get("t5l_download_port","") or self.port.get())),
                 "t5l_download_baud":(self.t5l_window.baud.get() if getattr(self,"t5l_window",None) else self.config_data.get("t5l_download_baud","115200")),
+                "t5l_paced_8283":bool(self.t5l_window.paced_var.get() if getattr(self,"t5l_window",None) else self.config_data.get("t5l_paced_8283",False)),
                 "quick_page":self.quick_page_var.get(),
                 "quick_panel_visible":self.quick_panel_visible.get(),
                 "quick_cycle_flags_v1":True,
@@ -1167,7 +1192,12 @@ class App(tk.Tk):
         session={"key":key,"label":label or base["port"] or key,"serial":WindowsSerial(),
                  "stop_event":threading.Event(),"settings":base,"rx_count":0,"tx_count":0,
                  "history":[],"agent_rx_buffer":[],"last_rx_at":None,"last_status":"",
-                 "reconfigure_generation":0,"reconfigure_lock":threading.Lock()}
+                 "reconfigure_generation":0,"reconfigure_lock":threading.Lock(),
+                 # 读取线程只向 UI 队列投递一个“有数据”标记；实际字节按端口合并，
+                 # 防止高频数据让 Queue 在长时间运行后无限增长。
+                 "rx_lock":threading.Lock(),"rx_pending_data":bytearray(),"rx_enqueued":False,
+                 "rx_first_tick":None,"rx_first_at":None,"rx_last_tick":None,"rx_dropped_bytes":0,
+                 "rx_error":None}
         self.sessions[key]=session
         self.refresh_session_tabs()
         return session
@@ -1408,9 +1438,32 @@ class App(tk.Tk):
                 data=session["serial"].read()
                 # 在读取线程中记录真实到达时间。非活动串口的数据可能在 UI
                 # 队列中短暂积压，不能用稍后的界面处理时间判断分包超时。
-                if data: self.rx_queue.put((key,data,time.monotonic(),datetime.now()))
+                if data:
+                    tick=time.monotonic(); arrived=datetime.now()
+                    with session["rx_lock"]:
+                        pending=session["rx_pending_data"]
+                        if not pending:
+                            session["rx_first_tick"]=tick; session["rx_first_at"]=arrived
+                        # UI 被拖住时优先保留最新数据，且记录丢弃量；内存始终有上限。
+                        if len(data)>=RX_PENDING_MAX_BYTES:
+                            session["rx_dropped_bytes"]+=len(pending)+len(data)-RX_PENDING_MAX_BYTES
+                            pending.clear(); data=data[-RX_PENDING_MAX_BYTES:]
+                            session["rx_first_tick"]=tick; session["rx_first_at"]=arrived
+                        else:
+                            overflow=max(0,len(pending)+len(data)-RX_PENDING_MAX_BYTES)
+                            if overflow:
+                                del pending[:overflow]; session["rx_dropped_bytes"]+=overflow
+                                if not pending:
+                                    session["rx_first_tick"]=tick; session["rx_first_at"]=arrived
+                        pending.extend(data); session["rx_last_tick"]=tick
+                        if not session["rx_enqueued"]:
+                            session["rx_enqueued"]=True; self.rx_queue.put(key)
             except Exception as e:
-                self.rx_queue.put((key,e)); break
+                with session["rx_lock"]:
+                    session["rx_error"]=e
+                    if not session["rx_enqueued"]:
+                        session["rx_enqueued"]=True; self.rx_queue.put(key)
+                break
 
     def poll_rx(self):
         self.poll_reconfigure_results()
@@ -1419,11 +1472,30 @@ class App(tk.Tk):
             while True:
                 if time.perf_counter()-started>=RX_UI_TIME_BUDGET: break
                 queued=self.rx_queue.get_nowait()
-                key,item=queued[0],queued[1]
-                received_tick=queued[2] if len(queued)>2 else time.monotonic()
-                received_at=queued[3] if len(queued)>3 else datetime.now()
+                # 新版读取线程只投递 COM 口标记；保留旧 tuple 兼容，方便热更新调试。
+                if isinstance(queued,str): key=queued
+                else: key=queued[0]
                 session=self.sessions.get(key)
                 if not session: continue
+                if isinstance(queued,str):
+                    with session["rx_lock"]:
+                        item=bytes(session["rx_pending_data"][:RX_UI_CHUNK_BYTES])
+                        del session["rx_pending_data"][:len(item)]
+                        received_tick=session["rx_first_tick"] or time.monotonic()
+                        received_at=session["rx_first_at"] or datetime.now()
+                        if session["rx_pending_data"]:
+                            # 留一个标记给下一次 UI 批次，避免一次回调占满消息循环。
+                            session["rx_first_tick"]=session["rx_last_tick"] or received_tick
+                            session["rx_first_at"]=datetime.now()
+                            self.rx_queue.put(key)
+                        else:
+                            session["rx_enqueued"]=False; session["rx_first_tick"]=None; session["rx_first_at"]=None
+                        error=session.get("rx_error"); session["rx_error"]=None
+                    if error is not None: item=error
+                else:
+                    item=queued[1]
+                    received_tick=queued[2] if len(queued)>2 else time.monotonic()
+                    received_at=queued[3] if len(queued)>3 else datetime.now()
                 if isinstance(item,Exception):
                     record=(datetime.now(),"错误",str(item).encode("utf-8",errors="replace"),"error",True)
                     session["history"].append(record); session["last_status"]=f"接收错误: {item}"
@@ -1438,13 +1510,15 @@ class App(tk.Tk):
                 new_packet=last is None or (now-last)*1000>=packet_timeout
                 session["last_rx_at"]=now
                 record=(received_at,"收←◆",bytes(item),"rx",new_packet)
-                if new_packet or not session["history"] or session["history"][-1][3]!="rx":
+                if (new_packet or not session["history"] or session["history"][-1][3]!="rx" or
+                        len(session["history"][-1][2])+len(item)>MAX_TRAFFIC_RECORD_BYTES):
                     session["history"].append(record)
                 else:
                     previous=session["history"][-1]
                     session["history"][-1]=(previous[0],previous[1],previous[2]+bytes(item),previous[3],True)
                 agent_buffer=session.setdefault("agent_rx_buffer",[])
-                if new_packet or not agent_buffer:
+                if (new_packet or not agent_buffer or
+                        len(agent_buffer[-1]["data"])+len(item)>MAX_TRAFFIC_RECORD_BYTES):
                     agent_buffer.append({"time":record[0],"data":bytearray(item)})
                 else:
                     agent_buffer[-1]["data"].extend(item)
@@ -1599,7 +1673,7 @@ class App(tk.Tk):
         if trim: self.trim_traffic_display()
 
     def trim_traffic_display(self):
-        """分批裁剪界面中的旧行，避免 Text 控件长期运行后持续变慢。"""
+        """分批裁剪界面旧内容；无时间戳时也按字符数限制，避免只有一行却无限增长。"""
         self.display_trim_counter+=1
         if self.display_trim_counter<200: return
         self.display_trim_counter=0
@@ -1607,6 +1681,10 @@ class App(tk.Tk):
             lines=int(self.recv.index("end-1c").split(".")[0])
             if lines>MAX_TRAFFIC_RECORDS+500:
                 self.recv.delete("1.0",f"{lines-MAX_TRAFFIC_RECORDS}.0")
+            # 关闭时间戳后，连续数据会合并为一行，不能只依赖行数裁剪。
+            chars=int(self.recv.count("1.0","end-1c","chars")[0])
+            if chars>MAX_DISPLAY_CHARS:
+                self.recv.delete("1.0",f"1.0+{chars-MAX_DISPLAY_CHARS}c")
         except (tk.TclError,ValueError):
             pass
 

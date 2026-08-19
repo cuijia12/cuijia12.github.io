@@ -1,5 +1,6 @@
 部署说明.txt
 config.json
+_sync_backup_*
 __pycache__/
 *.py[cod]
 build/

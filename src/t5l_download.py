@@ -34,10 +34,14 @@ def scan_files(folder):
 
 
 class Downloader:
-    def __init__(self, serial, progress, status, stop_event, frame_delay=0, baud=115200):
+    def __init__(self, serial, progress, status, stop_event, frame_delay=0, baud=115200, paced=False):
         self.serial, self.progress, self.status, self.stop = serial, progress, status, stop_event
         self.frame_delay = frame_delay
         self.baud = max(1200, int(baud))
+        # paced=True：用于被 T5L51 固件配成 8283 协议的 UART2/4/5 口。
+        # 该口由 8051 代理逐帧解析并回 4F4B，必须逐帧等待做流控，防止
+        # 8051 的小接收缓冲（如 UART2 仅 512B）被流水突发冲爆丢帧。
+        self.paced = paced
 
     def wait_ack(self, timeout=2.0):
         end = time.monotonic() + timeout; buf = bytearray()
@@ -49,24 +53,6 @@ class Downloader:
             if len(buf) > 1024: del buf[:-64]
         return False
 
-    def wait_acks(self, count, timeout=2.0, on_ack=None):
-        """一次收齐流水发送产生的多个 OK，避免逐包 USB 往返等待。"""
-        end = time.monotonic() + timeout
-        buf = bytearray(); received = 0
-        while time.monotonic() < end and not self.stop.is_set():
-            data = self.serial.read(512)
-            if data:
-                buf.extend(data)
-                while True:
-                    pos = buf.find(ACK)
-                    if pos < 0: break
-                    received += 1
-                    del buf[:pos + len(ACK)]
-                    if on_ack: on_ack(received)
-                    if received >= count: return True
-            if len(buf) > 2048: del buf[:-64]
-        return False
-
     def send_ack(self, frame, retries=3, delay=.02):
         for _ in range(retries):
             if self.stop.is_set(): raise RuntimeError("用户停止")
@@ -75,6 +61,59 @@ class Downloader:
                 if delay: time.sleep(delay)
                 return
         raise RuntimeError("屏幕无 OK 应答")
+
+    def read_vp_word(self, vp, timeout=0.6):
+        """读 1 个字 VP，返回 16 位值；无应答返回 None。"""
+        frame = b"\x5A\xA5\x04\x83" + vp.to_bytes(2, "big") + b"\x01"
+        try:
+            self.serial.write(frame)
+            if hasattr(self.serial, "flush_output"): self.serial.flush_output()
+        except Exception:
+            return None
+        end = time.monotonic() + timeout
+        buf = bytearray()
+        while time.monotonic() < end and not self.stop.is_set():
+            data = self.serial.read(256)
+            if data:
+                buf.extend(data)
+                while True:
+                    idx = buf.find(b"\x5A\xA5")
+                    if idx < 0:
+                        if len(buf) > 512: del buf[:256]
+                        break
+                    if idx + 9 > len(buf): break  # 帧未收齐
+                    if buf[idx + 3] == 0x83:
+                        return (buf[idx + 7] << 8) | buf[idx + 8]
+                    del buf[:idx + 2]
+        return None
+
+    def wait_flash_ready(self, timeout=8.0):
+        """轮询 VP 0x00AA 忙标志（首字节），直到 OS 完成写 flash。
+        与固件 SPIFlash_Action 的等待方式一致；8283 口下代理的 4F4B
+        只代表“已转发”，不代表 flash 已写完。"""
+        end = time.monotonic() + timeout
+        while time.monotonic() < end and not self.stop.is_set():
+            val = self.read_vp_word(0x00AA)
+            if val is not None and (val >> 8) == 0:
+                return True
+            time.sleep(.05)
+        return False
+
+    def wait_os_update_done(self, timeout=12.0):
+        """等待 OS 完成 8051 flash 编程：轮询 VP 0x0006 直到命令字清零；
+        若屏幕已自动复位（连续无应答超过 1s），也视为完成。"""
+        end = time.monotonic() + timeout
+        silent = 0.0
+        while time.monotonic() < end and not self.stop.is_set():
+            val = self.read_vp_word(0x0006)
+            if val is None:
+                silent += .1
+                if silent >= 1.0: return True
+            else:
+                silent = 0.0
+                if (val >> 8) == 0: return True
+            time.sleep(.1)
+        return False
 
     def wait_screen_online(self, timeout=6.0):
         """复位后读取 VP 0x0000，收到 0x83 返回才认为屏幕真正上线。"""
@@ -99,6 +138,21 @@ class Downloader:
 
     def write_cache(self, payload, cache_size, sent, total):
         data = payload.ljust(cache_size, b"\xFF")
+        if self.paced:
+            # 8283 口逐帧模式：8051 代理每帧回 4F4B，必须逐帧等待做流控，
+            # 否则其 512 字节接收缓冲会被流水突发冲爆、丢帧后写坏 flash。
+            for offset in range(0, cache_size, FRAME_DATA):
+                if self.stop.is_set(): raise RuntimeError("用户停止")
+                part = data[offset:offset + FRAME_DATA]
+                vp = 0x8000 + offset // 2
+                frame = b"\x5A\xA5" + bytes([len(part) + 3, 0x82]) + vp.to_bytes(2, "big") + part
+                self.serial.write(frame)
+                if hasattr(self.serial, "flush_output"): self.serial.flush_output()
+                if not self.wait_ack(timeout=1.0):
+                    raise RuntimeError(f"8283 逐帧模式：VP 0x{vp:04X} 数据帧无应答")
+                sent += len(part)
+                self.progress(sent, total)
+            return sent
         batch = []
         for offset in range(0, cache_size, FRAME_DATA):
             part = data[offset:offset + FRAME_DATA]
@@ -107,52 +161,32 @@ class Downloader:
             batch.append((frame, len(part)))
             if len(batch) == PIPELINE_FRAMES or offset + len(part) >= cache_size:
                 if self.stop.is_set(): raise RuntimeError("用户停止")
-                acknowledged = 0
-                def ack_progress(received):
-                    nonlocal acknowledged
-                    acknowledged = received
-                if hasattr(self.serial, "flush_output") and hasattr(self.serial, "purge_input"):
-                    # 在整块连续发送的同时实时读取 OK；不阻塞发送流水。
-                    ack_result = []
-                    def collect_acks():
-                        ack_result.append(self.wait_acks(len(batch), timeout=60.0, on_ack=ack_progress))
-                    ack_thread = threading.Thread(target=collect_acks, daemon=True)
-                    ack_thread.start()
-                    progress_stop = threading.Event()
-                    batch_bytes = sum(length for _packet, length in batch)
-                    wire_bytes = sum(len(packet) for packet, _length in batch)
-                    progress_start = time.monotonic()
-                    def track_transmission():
-                        # 串口8N1每字节10bit，按实际协议字节数平滑估算发送进度；
-                        # 最后一个字节必须等全部 OK 收齐后才确认。
-                        while not progress_stop.wait(.02):
-                            wire_sent = (time.monotonic() - progress_start) * self.baud / 10
-                            ratio = min(1.0, wire_sent / max(1, wire_bytes))
-                            shown = min(batch_bytes - 1, int(batch_bytes * ratio))
-                            self.progress(sent + shown, total)
-                    progress_thread = threading.Thread(target=track_transmission, daemon=True)
-                    progress_thread.start()
-                    # 整个缓存批次一次 WriteFile，速度与原厂工具的流水方式一致。
-                    try:
-                        for group_start in range(0, len(batch), WRITE_GROUP_FRAMES):
-                            if self.stop.is_set(): raise RuntimeError("用户停止")
-                            group = batch[group_start:group_start + WRITE_GROUP_FRAMES]
-                            self.serial.write(b"".join(packet for packet, _length in group))
-                        self.serial.flush_output()
-                        ack_thread.join(3.0)
-                    finally:
-                        progress_stop.set(); progress_thread.join(.1)
-                    if ack_thread.is_alive() or not ack_result or not ack_result[0]:
-                        raise RuntimeError(f"屏幕数据分包 OK 应答不完整（应收 {len(batch)} 个）")
-                    sent += batch_bytes
-                    self.progress(sent, total)
-                    self.serial.purge_input()
-                else:
-                    self.serial.write(b"".join(packet for packet, _length in batch))
-                    if not self.wait_acks(len(batch), on_ack=ack_progress):
-                        raise RuntimeError("屏幕数据分包 OK 应答不完整")
-                    sent += sum(length for _packet, length in batch)
-                    self.progress(sent, total)
+                # 数据帧不逐帧验证应答，整块流水发送；进度按协议字节数平滑估算，
+                # 最终由写 flash 命令帧（0x00AA）的 OK 应答确认本块完成。
+                batch_bytes = sum(length for _packet, length in batch)
+                wire_bytes = sum(len(packet) for packet, _length in batch)
+                progress_stop = threading.Event()
+                progress_start = time.monotonic()
+                def track_transmission():
+                    # 串口8N1每字节10bit，按实际协议字节数平滑估算发送进度。
+                    while not progress_stop.wait(.02):
+                        wire_sent = (time.monotonic() - progress_start) * self.baud / 10
+                        ratio = min(1.0, wire_sent / max(1, wire_bytes))
+                        shown = min(batch_bytes - 1, int(batch_bytes * ratio))
+                        self.progress(sent + shown, total)
+                progress_thread = threading.Thread(target=track_transmission, daemon=True)
+                progress_thread.start()
+                try:
+                    for group_start in range(0, len(batch), WRITE_GROUP_FRAMES):
+                        if self.stop.is_set(): raise RuntimeError("用户停止")
+                        group = batch[group_start:group_start + WRITE_GROUP_FRAMES]
+                        self.serial.write(b"".join(packet for packet, _length in group))
+                    if hasattr(self.serial, "flush_output"): self.serial.flush_output()
+                finally:
+                    progress_stop.set(); progress_thread.join(.1)
+                sent += batch_bytes
+                self.progress(sent, total)
+                if hasattr(self.serial, "purge_input"): self.serial.purge_input()
                 batch.clear()
         return sent
 
@@ -160,6 +194,11 @@ class Downloader:
         sent = self.write_cache(payload, BLOCK_SIZE, sent, total)
         flash = bytes.fromhex("5A A5 0F 82 00 AA 5A 02") + block_no.to_bytes(2, "big") + bytes.fromhex("80 00 00 14 00 00 00 00")
         self.send_ack(flash, retries=5, delay=.05)
+        if self.paced:
+            # 8283 口下代理对 0x00AA 帧的 4F4B 只代表“已转发”，
+            # 必须再等 OS 真正写完 flash，避免下一块数据覆盖缓存。
+            if not self.wait_flash_ready():
+                raise RuntimeError(f"块 {block_no} 写 flash 未完成（VP 0x00AA 忙标志超时）")
         return sent
 
     def write_t5l51(self, path, sent, total):
@@ -174,10 +213,18 @@ class Downloader:
         update = bytes.fromhex("5A A5 07 82 00 06 5A A5 80 00")
         self.serial.write(update)
         if hasattr(self.serial, "flush_output"): self.serial.flush_output()
-        # OS_Update_CMD 完成后只清零命令，不保证自动复位；读取其普通 0x82 OK
-        # 后显式发送系统复位命令。
-        self.wait_ack(timeout=2.0)
-        time.sleep(.05)
+        if self.paced:
+            # 8283 口下代理的应答立即返回，不代表 OS 已完成 8051 编程；
+            # 轮询 VP 0x0006 命令字清零后再复位，避免打断写 flash。
+            self.wait_ack(timeout=1.0)
+            if not self.wait_os_update_done():
+                raise RuntimeError("T5L51 更新未在超时内完成")
+            time.sleep(.05)
+        else:
+            # 普通 OS 口：0x0006 的 OK 由 OS 在编程完成后返回；超时不报错，
+            # 随后显式发送系统复位命令。
+            self.wait_ack(timeout=2.0)
+            time.sleep(.05)
         self.serial.write(RESET)
         if hasattr(self.serial, "flush_output"): self.serial.flush_output()
         self.status(os.path.basename(path), "等待屏幕重新上线")
@@ -189,7 +236,9 @@ class Downloader:
     def stop_dgus_refresh(self):
         """下载 ICL 前停止 DGUS 刷新，避免界面读取到更新中的混合资源。"""
         self.status("", "停止 DGUS 刷新，准备下载 ICL")
-        self.send_ack(STOP_DGUS_REFRESH, retries=3, delay=.05)
+        # 无数据命令帧不验证应答，发送后继续。
+        self.serial.write(STOP_DGUS_REFRESH)
+        if hasattr(self.serial, "flush_output"): self.serial.flush_output()
 
     def run(self, files):
         files = sorted(files, key=lambda item: (os.path.basename(item[1]).lower() == "t5l51.bin", item[0]))
@@ -298,6 +347,9 @@ class DownloadWindow(ttk.Frame):
         ttk.Button(controls, text="刷新", command=self.refresh_ports).pack(side="left")
         ttk.Label(controls, text="波特率").pack(side="left", padx=(12, 3)); self.baud_box = ttk.Combobox(controls, textvariable=self.baud, values=["9600", "115200", "921600"], width=10, state="readonly"); self.baud_box.pack(side="left")
         self.baud_box.bind("<<ComboboxSelected>>", self.shared_baud_selected)
+        self.paced_var = tk.BooleanVar(value=bool(self.config_data.get("t5l_paced_8283", False)))
+        ttk.Checkbutton(controls, text="8283逐帧模式", variable=self.paced_var,
+                        command=self.remember_download_settings).pack(side="left", padx=(12, 0))
         self.start_btn = ttk.Button(controls, text="开始下载", command=self.start); self.start_btn.pack(side="right")
         ttk.Button(controls, text="停止", command=self.stop_download).pack(side="right", padx=6)
         progress_row = ttk.Frame(self); progress_row.pack(fill="x", padx=12, pady=(0, 12))
@@ -388,6 +440,7 @@ class DownloadWindow(ttk.Frame):
         """立即保存 T5L 独立串口和波特率，供下次启动恢复。"""
         self.config_data["t5l_download_port"] = self.port.get()
         self.config_data["t5l_download_baud"] = self.baud.get()
+        self.config_data["t5l_paced_8283"] = bool(self.paced_var.get()) if hasattr(self, "paced_var") else False
         self.save_callback()
 
     def sync_baud_from_serial(self, port, baud):
@@ -598,7 +651,8 @@ class DownloadWindow(ttk.Frame):
             try:
                 frame_delay = 0
                 Downloader(self.serial, self.set_progress, self.status, self.stop_event,
-                           frame_delay, int(self.baud.get())).run(download_files)
+                           frame_delay, int(self.baud.get()),
+                           bool(self.config_data.get("t5l_paced_8283", False))).run(download_files)
                 if not self.stop_event.is_set():
                     self.after(0, lambda: messagebox.showinfo("T5L 下载", "下载完成，屏幕已复位"))
             except Exception as e:
