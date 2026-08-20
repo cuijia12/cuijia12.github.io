@@ -14,6 +14,8 @@ FRAME_DATA = 240
 # 一个 32KB 缓存块共 137 帧；整块流水发送，行为更接近原厂下载工具。
 PIPELINE_FRAMES = 256
 WRITE_GROUP_FRAMES = PIPELINE_FRAMES
+# 普通模式（非 8283 逐帧）：每 10 帧流水窗口校验一次应答，及时发现丢帧。
+ACK_WINDOW = 10
 
 
 def file_id(path):
@@ -51,6 +53,23 @@ class Downloader:
                 buf.extend(data)
                 if ACK in buf: return True
             if len(buf) > 1024: del buf[:-64]
+        return False
+
+    def wait_acks(self, count, timeout=2.0):
+        """一次收齐一个 10 帧窗口的 OK 应答。"""
+        end = time.monotonic() + timeout
+        buf = bytearray(); received = 0
+        while time.monotonic() < end and not self.stop.is_set():
+            data = self.serial.read(512)
+            if data:
+                buf.extend(data)
+                while True:
+                    pos = buf.find(ACK)
+                    if pos < 0: break
+                    received += 1
+                    del buf[:pos + len(ACK)]
+                    if received >= count: return True
+            if len(buf) > 2048: del buf[:-64]
         return False
 
     def send_ack(self, frame, retries=3, delay=.02):
@@ -161,8 +180,8 @@ class Downloader:
             batch.append((frame, len(part)))
             if len(batch) == PIPELINE_FRAMES or offset + len(part) >= cache_size:
                 if self.stop.is_set(): raise RuntimeError("用户停止")
-                # 数据帧不逐帧验证应答，整块流水发送；进度按协议字节数平滑估算，
-                # 最终由写 flash 命令帧（0x00AA）的 OK 应答确认本块完成。
+                # 普通模式：按 10 帧窗口流水发送，每窗口校验应答，
+                # 及时发现丢帧，又避免逐帧往返拖慢整块传输。
                 batch_bytes = sum(length for _packet, length in batch)
                 wire_bytes = sum(len(packet) for packet, _length in batch)
                 progress_stop = threading.Event()
@@ -177,11 +196,15 @@ class Downloader:
                 progress_thread = threading.Thread(target=track_transmission, daemon=True)
                 progress_thread.start()
                 try:
-                    for group_start in range(0, len(batch), WRITE_GROUP_FRAMES):
+                    for group_start in range(0, len(batch), ACK_WINDOW):
                         if self.stop.is_set(): raise RuntimeError("用户停止")
-                        group = batch[group_start:group_start + WRITE_GROUP_FRAMES]
+                        group = batch[group_start:group_start + ACK_WINDOW]
                         self.serial.write(b"".join(packet for packet, _length in group))
-                    if hasattr(self.serial, "flush_output"): self.serial.flush_output()
+                        if hasattr(self.serial, "flush_output"): self.serial.flush_output()
+                        # 超时按波特率估算：本窗口发送时间×2 + 余量，最低 2 秒。
+                        window_timeout = max(2.0, (sum(len(p) for p, _l in group) * 10 / self.baud) * 2 + 1.0)
+                        if not self.wait_acks(len(group), timeout=window_timeout):
+                            raise RuntimeError(f"屏幕数据分包 OK 应答不完整（第 {group_start // ACK_WINDOW + 1} 个窗口）")
                 finally:
                     progress_stop.set(); progress_thread.join(.1)
                 sent += batch_bytes

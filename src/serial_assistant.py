@@ -22,7 +22,7 @@ from t5l_download import DownloadWindow, file_id
 
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-APP_VERSION = "1.1"
+APP_VERSION = "1.1.1"
 MAX_TRAFFIC_RECORDS = 5000
 VISIBLE_TRAFFIC_RECORDS = 1000
 RX_UI_TIME_BUDGET = 0.010
@@ -40,7 +40,7 @@ HELP_HTML = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>串口助手 v1.1 使用帮助</title>
+<title>串口助手 v1.1.1 使用帮助</title>
 <style>
 :root{--bg:#f4f7fb;--card:#fff;--text:#243247;--muted:#66758a;--line:#dce5f0;--blue:#3478f6;--green:#16845b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI Variable Text","Microsoft YaHei UI",sans-serif;line-height:1.75}
@@ -66,7 +66,7 @@ nav a{color:#dbeaff;margin-right:18px;text-decoration:none}footer{padding:0 18px
 <section class="card"><h2>界面与数据保存</h2><ul><li>20种界面风格，分为明亮、深色、科技、护眼和经典五类。</li><li>窗口尺寸与位置、串口参数、发送内容、快捷指令、主题和工程路径都会自动保存。</li><li>配置保存在程序同目录的 <code>config.json</code>，移动 EXE 时可按需一同复制。</li></ul></section>
 <section class="card" id="faq"><h2>注意事项</h2><ul><li>本程序仅支持 Windows，串口层直接调用 Windows API。</li><li>HEX 输入可使用空格、逗号、分号、冒号或短横线分隔，必须保持每个字节为两位十六进制。</li><li>同一串口不能同时被其他串口软件占用。</li><li>若端口列表未更新，请点击“刷新”并检查 USB 串口驱动。</li></ul></section>
 <section class="card"><h2>作者信息</h2><p>微信号：<strong>c402306805</strong></p><p>个人网页：<a href="https://cuijia12.github.io/" target="_blank" rel="noopener">https://cuijia12.github.io/</a></p><p class="ok">感谢使用串口助手。</p></section>
-</main><footer>串口助手 v1.1 · 本帮助页面内置于程序，可离线查看</footer>
+</main><footer>串口助手 v1.1.1 · 本帮助页面内置于程序，可离线查看</footer>
 </body></html>"""
 THEMES = {
     "现代浅色": {"bg":"#F3F6FA","card":"#FFFFFF","header":"#172B4D","header_fg":"#FFFFFF","muted":"#52647A","text":"#27364B","field":"#F8FAFD","border":"#DCE4EF","primary":"#3478F6","primary_hover":"#2367DA","status_bg":"#EAF2FF","status_fg":"#2865C7","rx":"#25364D","tx":"#16744A"},

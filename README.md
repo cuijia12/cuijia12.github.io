@@ -6,7 +6,7 @@
 
 https://cuijia12.github.io/
 
-## 串口助手 v1.1
+## 串口助手 v1.1.1
 
 - Windows 原生多路串口收发
 - 300 条快捷指令
@@ -21,13 +21,13 @@ https://cuijia12.github.io/
 
 支持多个 COM 口同时打开，每个串口独立保存参数、通讯记录、收发选项及打开/关闭状态。
 
-![串口助手 v1.1 多路串口调试界面](docs/images/serial-assistant-v1.1.png)
+![串口助手 v1.1.1 多路串口调试界面](docs/images/serial-assistant-v1.1.png)
 
 ### T5L 在线下载
 
 集成 DWIN_SET 文件管理、快捷文件选择、独立下载串口、实时进度及 T5L51 更新。
 
-![串口助手 v1.1 T5L 在线下载界面](docs/images/t5l-download-v1.1.png)
+![串口助手 v1.1.1 T5L 在线下载界面](docs/images/t5l-download-v1.1.png)
 
 ## 软件界面
 
@@ -35,13 +35,13 @@ https://cuijia12.github.io/
 
 支持多个 COM 口同时打开，每个串口独立保存参数、通讯记录、收发选项及打开/关闭状态。
 
-![串口助手 v1.1 多路串口调试界面](docs/images/serial-assistant-v1.1.png)
+![串口助手 v1.1.1 多路串口调试界面](docs/images/serial-assistant-v1.1.png)
 
 ### T5L 在线下载
 
 集成 DWIN_SET 文件管理、快捷文件选择、独立下载串口、实时进度及 T5L51 更新。
 
-![串口助手 v1.1 T5L 在线下载界面](docs/images/t5l-download-v1.1.png)
+![串口助手 v1.1.1 T5L 在线下载界面](docs/images/t5l-download-v1.1.png)
 
 ## 多路串口
 
@@ -105,9 +105,9 @@ T5L 下载模块集成在串口助手主界面中。开始下载时，程序只�
 
 - 源码目录：[`src/`](./src/)
 - 开源许可证：[`MIT License`](./LICENSE)
-- 版本下载：[GitHub Releases](https://github.com/cuijia12/cuijia12.github.io/releases/tag/v1.1)
-- Windows 运行包：[SerialAssistant_v1.1.zip](https://github.com/cuijia12/cuijia12.github.io/releases/download/v1.1/SerialAssistant_v1.1.zip)
-- 完整源码包：[SerialAssistant_v1.1_Source.zip](https://github.com/cuijia12/cuijia12.github.io/releases/download/v1.1/SerialAssistant_v1.1_Source.zip)
+- 版本下载：[GitHub Releases](https://github.com/cuijia12/cuijia12.github.io/releases/tag/v1.1.1)
+- Windows 运行包：[SerialAssistant_v1.1.1.zip](https://github.com/cuijia12/cuijia12.github.io/releases/download/v1.1.1/SerialAssistant_v1.1.1.zip)
+- 完整源码包：[SerialAssistant_v1.1.1_Source.zip](https://github.com/cuijia12/cuijia12.github.io/releases/download/v1.1.1/SerialAssistant_v1.1.1_Source.zip)
 
 源码使用 Python 3 和 Windows 原生串口 API 实现，可直接运行，也可使用 PyInstaller 打包。
 
